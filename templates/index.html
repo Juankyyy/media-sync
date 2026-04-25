@@ -1,0 +1,1501 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Media Sync — Telegram × Immich</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #1a1a24;
+    --border: #2a2a3a;
+    --accent: #5b6cf7;
+    --accent2: #00e5c0;
+    --warn: #f7a85b;
+    --danger: #f75b5b;
+    --success: #5bf7a0;
+    --text: #e8e8f0;
+    --muted: #6a6a88;
+    --font-ui: 'Syne', sans-serif;
+    --font-mono: 'Space Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(91,108,247,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(91,108,247,0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+
+  /* ─── Header ─────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 48px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo-icon {
+    width: 42px; height: 42px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+
+  .logo-text h1 {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-text p {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    letter-spacing: 0.05em;
+  }
+
+  .status-bar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .status-dot {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .status-dot.ok {
+    border-color: rgba(91,247,160,0.3);
+    background: rgba(91,247,160,0.06);
+  }
+
+  .status-dot.err {
+    border-color: rgba(247,91,91,0.3);
+    background: rgba(247,91,91,0.06);
+  }
+
+  .status-dot.pending {
+    border-color: var(--border);
+  }
+
+  /* ─── Checking shimmer effect ────────────────────── */
+  .status-dot.checking {
+    border-color: rgba(91,108,247,0.4);
+    background: rgba(91,108,247,0.04);
+  }
+
+  .status-dot.checking::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: conic-gradient(
+      from var(--shimmer-angle, 0deg),
+      transparent 0%,
+      rgba(91,108,247,0.25) 10%,
+      rgba(0,229,192,0.2) 15%,
+      transparent 25%,
+      transparent 100%
+    );
+    animation: shimmerSpin 1.8s linear infinite;
+    z-index: 0;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    padding: 1px;
+  }
+
+  .status-dot.checking::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      105deg,
+      transparent 30%,
+      rgba(91,108,247,0.07) 45%,
+      rgba(0,229,192,0.05) 55%,
+      transparent 70%
+    );
+    background-size: 250% 100%;
+    animation: shimmerGlow 1.5s ease-in-out infinite;
+    z-index: 0;
+  }
+
+  .status-dot.checking > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  @keyframes shimmerSpin {
+    to { --shimmer-angle: 360deg; }
+  }
+
+  @keyframes shimmerGlow {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -50% 0; }
+  }
+
+  @property --shimmer-angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+  }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.3s;
+    flex-shrink: 0;
+  }
+
+  .dot.ok { background: var(--success); box-shadow: 0 0 8px var(--success); }
+  .dot.err { background: var(--danger); box-shadow: 0 0 6px rgba(247,91,91,0.4); }
+
+  .dot.checking {
+    background: var(--accent);
+    animation: dotPulse 1s ease-in-out infinite;
+  }
+
+  @keyframes dotPulse {
+    0%, 100% { box-shadow: 0 0 4px rgba(91,108,247,0.3); transform: scale(1); }
+    50%      { box-shadow: 0 0 10px rgba(91,108,247,0.6); transform: scale(1.25); }
+  }
+
+  .status-label {
+    font-size: 11px;
+    white-space: nowrap;
+    transition: color 0.3s;
+  }
+
+  .status-dot.ok .status-label { color: var(--success); }
+  .status-dot.err .status-label { color: var(--danger); }
+  .status-dot.checking .status-label { color: var(--accent); }
+
+  /* ─── Tabs ───────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 32px;
+    background: var(--surface);
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+
+  .tab {
+    flex: 1;
+    padding: 10px 16px;
+    border: none;
+    background: none;
+    color: var(--muted);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .tab:hover { color: var(--text); }
+
+  .tab.active {
+    background: var(--surface2);
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ─── Cards ──────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 20px;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ─── Form elements ──────────────────────────────── */
+  .field {
+    margin-bottom: 16px;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-family: var(--font-mono);
+  }
+
+  input, select {
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+
+  input:focus, select:focus {
+    border-color: var(--accent);
+  }
+
+  select option {
+    background: var(--surface2);
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  /* ─── Buttons ────────────────────────────────────── */
+  btn, .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #6e7ef9;
+    transform: translateY(-1px);
+  }
+
+  .btn-ghost {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .btn-danger {
+    background: rgba(247,91,91,0.1);
+    color: var(--danger);
+    border: 1px solid rgba(247,91,91,0.2);
+  }
+
+  .btn-danger:hover {
+    background: rgba(247,91,91,0.2);
+  }
+
+  .btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .btn-test {
+    background: var(--surface2);
+    color: var(--accent2);
+    border: 1px solid rgba(0,229,192,0.2);
+    padding: 8px 14px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+  }
+
+  .btn-test:hover {
+    border-color: var(--accent2);
+    background: rgba(0,229,192,0.05);
+  }
+
+  /* ─── Drop Zone ──────────────────────────────────── */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 60px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .drop-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, rgba(91,108,247,0.03) 0%, transparent 70%);
+    transition: opacity 0.3s;
+  }
+
+  .drop-zone:hover, .drop-zone.over {
+    border-color: var(--accent);
+    background: rgba(91,108,247,0.04);
+  }
+
+  .drop-zone.over::before {
+    opacity: 3;
+  }
+
+  .drop-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    display: block;
+    opacity: 0.6;
+  }
+
+  .drop-title {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+
+  .drop-sub {
+    font-size: 13px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  .file-preview {
+    display: none;
+    margin-top: 20px;
+    padding: 16px;
+    background: var(--surface2);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    align-items: center;
+    gap: 14px;
+  }
+
+  .file-preview.show { display: flex; }
+
+  .file-thumb {
+    width: 56px; height: 56px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .file-thumb img, .file-thumb video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+  }
+
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-weight: 600; font-size: 14px; truncate; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-size { font-size: 12px; color: var(--muted); font-family: var(--font-mono); margin-top: 2px; }
+
+  /* ─── Progress / Status ──────────────────────────── */
+  .upload-btn-wrap {
+    margin-top: 24px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .btn-upload {
+    padding: 14px 32px;
+    font-size: 15px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), #7b6cf7);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: var(--font-ui);
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .btn-upload:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(91,108,247,0.35);
+  }
+
+  .btn-upload:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .progress-wrap {
+    display: none;
+    margin-top: 20px;
+  }
+
+  .progress-wrap.show { display: block; }
+
+  .progress-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    transition: width 0.3s;
+    width: 0%;
+  }
+
+  .progress-fill.indeterminate {
+    width: 40%;
+    animation: slide 1.2s ease-in-out infinite;
+  }
+
+  @keyframes slide {
+    0% { transform: translateX(-150%); }
+    100% { transform: translateX(350%); }
+  }
+
+  /* ─── Result toast ───────────────────────────────── */
+  .result-box {
+    display: none;
+    margin-top: 20px;
+    padding: 16px 20px;
+    border-radius: 10px;
+    border: 1px solid;
+    font-size: 14px;
+  }
+
+  .result-box.show { display: block; }
+  .result-box.success { background: rgba(91,247,160,0.07); border-color: rgba(91,247,160,0.3); color: var(--success); }
+  .result-box.error { background: rgba(247,91,91,0.07); border-color: rgba(247,91,91,0.3); color: var(--danger); }
+  .result-box.partial { background: rgba(247,168,91,0.07); border-color: rgba(247,168,91,0.3); color: var(--warn); }
+
+  .result-detail { font-family: var(--font-mono); font-size: 12px; margin-top: 8px; opacity: 0.8; }
+
+  /* ─── Destinations list ──────────────────────────── */
+  .dest-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .dest-item {
+    display: flex;
+    align-items: center;
+    padding: 14px 18px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    gap: 14px;
+    transition: border-color 0.2s;
+  }
+
+  .dest-item:hover { border-color: var(--accent); }
+
+  .dest-name { font-weight: 600; flex: 1; }
+  .dest-ids { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+  .dest-badge {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(91,108,247,0.15);
+    color: var(--accent);
+    border: 1px solid rgba(91,108,247,0.2);
+  }
+
+  /* ─── Add dest form ──────────────────────────────── */
+  .add-dest-form {
+    display: none;
+    padding: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-top: 16px;
+  }
+
+  .add-dest-form.show { display: block; }
+
+  /* ─── Selectors ──────────────────────────────────── */
+  .selector-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: end;
+  }
+
+  /* ─── Notifications ──────────────────────────────── */
+  .toast {
+    position: fixed;
+    bottom: 32px;
+    right: 32px;
+    padding: 14px 20px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 100;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s;
+    max-width: 320px;
+  }
+
+  .toast.show {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  .toast.success { background: #1a3328; color: var(--success); border: 1px solid rgba(91,247,160,0.3); }
+  .toast.error { background: #33181a; color: var(--danger); border: 1px solid rgba(247,91,91,0.3); }
+  .toast.info { background: var(--surface2); color: var(--accent); border: 1px solid var(--border); }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  .helper-text { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
+
+  /* ─── Persistent Notifications ───────────────────── */
+  .notif-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 420px;
+    width: calc(100% - 40px);
+    pointer-events: none;
+  }
+
+  .notif {
+    pointer-events: all;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    border: 1px solid;
+    font-size: 13px;
+    animation: notifIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+
+  .notif.removing {
+    animation: notifOut 0.25s ease forwards;
+  }
+
+  @keyframes notifIn {
+    from { opacity: 0; transform: translateX(40px) scale(0.95); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+  }
+
+  @keyframes notifOut {
+    from { opacity: 1; transform: translateX(0) scale(1); }
+    to   { opacity: 0; transform: translateX(40px) scale(0.95); }
+  }
+
+  .notif.error {
+    background: rgba(30, 12, 14, 0.95);
+    border-color: rgba(247, 91, 91, 0.4);
+    color: #f8c4c4;
+  }
+
+  .notif.warning {
+    background: rgba(30, 24, 10, 0.95);
+    border-color: rgba(247, 168, 91, 0.4);
+    color: #f8ddb8;
+  }
+
+  .notif-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .notif-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .notif-title {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+
+  .notif.error .notif-title { color: var(--danger); }
+  .notif.warning .notif-title { color: var(--warn); }
+
+  .notif-msg {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    opacity: 0.85;
+    word-break: break-word;
+  }
+
+  .notif-close {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.05);
+    color: rgba(255,255,255,0.5);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font-ui);
+    line-height: 1;
+  }
+
+  .notif-close:hover {
+    background: rgba(255,255,255,0.12);
+    color: white;
+    border-color: rgba(255,255,255,0.25);
+  }
+
+  /* ─── Subtle recheck animation (connected) ────── */
+  .dot.rechecking {
+    animation: dotBlink 0.8s ease-in-out;
+  }
+
+  @keyframes dotBlink {
+    0%   { opacity: 1; }
+    40%  { opacity: 0.3; }
+    100% { opacity: 1; }
+  }
+
+  /* ─── Countdown widget ──────────────────────────── */
+  .countdown-widget {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 150;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    background: rgba(17, 17, 24, 0.92);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    transition: all 0.3s;
+  }
+
+  .countdown-widget.checking {
+    border-color: rgba(91,108,247,0.4);
+    color: var(--accent);
+  }
+
+  .countdown-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .countdown-text {
+    white-space: nowrap;
+  }
+
+  .countdown-seconds {
+    font-weight: 700;
+    color: var(--text);
+    min-width: 22px;
+    display: inline-block;
+    text-align: center;
+  }
+
+  .countdown-widget.checking .countdown-seconds {
+    color: var(--accent);
+  }
+
+  .countdown-bar {
+    width: 48px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .countdown-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    transition: width 1s linear;
+    width: 100%;
+  }
+
+  .section-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  hr.divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">⚡</div>
+      <div class="logo-text">
+        <h1>Media Sync</h1>
+        <p>TELEGRAM × IMMICH</p>
+      </div>
+    </div>
+    <div class="status-bar">
+      <div class="status-dot pending" id="status-tg">
+        <span class="dot" id="dot-tg"></span>
+        <span class="status-label" id="label-tg">Telegram: verificando…</span>
+      </div>
+      <div class="status-dot pending" id="status-im">
+        <span class="dot" id="dot-im"></span>
+        <span class="status-label" id="label-im">Immich: verificando…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="setTab('upload')">📤 Subir archivo</button>
+    <button class="tab" onclick="setTab('destinations')">📁 Destinos</button>
+    <button class="tab" onclick="setTab('settings')">⚙️ Configuración</button>
+  </div>
+
+  <!-- PANEL: Upload -->
+  <div id="panel-upload" class="panel active">
+    <div class="card">
+      <div class="card-title">📤 Subir a ambas plataformas</div>
+
+      <!-- Drop zone -->
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <span class="drop-icon">🖼️</span>
+        <div class="drop-title">Arrastra tu foto o vídeo aquí</div>
+        <div class="drop-sub">o haz clic para seleccionar — JPG, PNG, MP4, MOV...</div>
+        <input type="file" id="fileInput" accept="image/*,video/*" style="display:none">
+      </div>
+
+      <!-- File preview -->
+      <div class="file-preview" id="filePreview">
+        <div class="file-thumb" id="fileThumb">📄</div>
+        <div class="file-info">
+          <div class="file-name" id="fileName">—</div>
+          <div class="file-size" id="fileSize">—</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="clearFile()">✕ Quitar</button>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Destination selector -->
+      <div class="field">
+        <label>DESTINO (Álbum Immich = Topic Telegram)</label>
+        <select id="destSelect">
+          <option value="">— Selecciona un destino —</option>
+        </select>
+        <div class="helper-text">Los destinos se configuran en la pestaña "Destinos"</div>
+      </div>
+
+      <!-- Upload button -->
+      <div class="upload-btn-wrap">
+        <button class="btn-upload" id="uploadBtn" onclick="doUpload()" disabled>
+          ⚡ Subir a ambas plataformas
+        </button>
+        <span id="uploadHint" style="font-size:12px;color:var(--muted);font-family:var(--font-mono)">
+          Selecciona un archivo y destino
+        </span>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-bar"><div class="progress-fill indeterminate" id="progressFill"></div></div>
+        <div style="font-size:12px;font-family:var(--font-mono);color:var(--muted)" id="progressLabel">Subiendo...</div>
+      </div>
+
+      <!-- Result -->
+      <div class="result-box" id="resultBox">
+        <div id="resultTitle"></div>
+        <div class="result-detail" id="resultDetail"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL: Destinations -->
+  <div id="panel-destinations" class="panel">
+    <div class="card">
+      <div class="section-actions">
+        <div class="card-title" style="margin:0">📁 Destinos configurados</div>
+        <button class="btn btn-primary btn-sm" onclick="toggleAddForm()">+ Añadir destino</button>
+      </div>
+
+      <!-- Add form -->
+      <div class="add-dest-form" id="addDestForm">
+        <div class="field">
+          <label>NOMBRE DEL DESTINO</label>
+          <input type="text" id="newDestName" placeholder="ej. Vacaciones 2024">
+          <div class="helper-text">Usa el mismo nombre en Telegram y en Immich para mayor claridad</div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>ÁLBUM DE IMMICH</label>
+            <div class="selector-row">
+              <select id="newImmichAlbum">
+                <option value="">— Cargando... —</option>
+              </select>
+              <button class="btn btn-ghost btn-sm" onclick="loadImmichAlbums()" title="Recargar">↻</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>TOPIC DE TELEGRAM</label>
+            <div class="selector-row">
+              <select id="newTgTopic">
+                <option value="">— Cargando... —</option>
+              </select>
+              <button class="btn btn-ghost btn-sm" onclick="loadTgTopics()" title="Recargar">↻</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:4px">
+          <button class="btn btn-primary btn-sm" onclick="addDest()">Guardar destino</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleAddForm()">Cancelar</button>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="dest-list" id="destList">
+        <div class="empty-state">No hay destinos. Añade uno arriba.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL: Settings -->
+  <div id="panel-settings" class="panel">
+
+    <!-- Telegram -->
+    <div class="card">
+      <div class="card-title">✈️ Telegram</div>
+      <div class="field">
+        <label>BOT TOKEN</label>
+        <input type="password" id="cfgTgToken" placeholder="1234567890:ABCdef...">
+        <div class="helper-text">Crea un bot con @BotFather y copia el token</div>
+      </div>
+      <div class="field">
+        <label>CHAT ID DEL GRUPO</label>
+        <input type="text" id="cfgTgChat" placeholder="-1001234567890">
+        <div class="helper-text">ID del grupo con tópicos (número negativo). Usa @getmyid_bot para obtenerlo</div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn-test btn btn-ghost" onclick="testConn('telegram')">🔌 Probar conexión</button>
+      </div>
+    </div>
+
+    <!-- Immich -->
+    <div class="card">
+      <div class="card-title">🌅 Immich</div>
+      <div class="field">
+        <label>URL DEL SERVIDOR</label>
+        <input type="text" id="cfgImUrl" placeholder="http://192.168.1.100:2283">
+        <div class="helper-text">URL de tu servidor Immich (local o con dominio)</div>
+      </div>
+      <div class="field">
+        <label>API KEY</label>
+        <input type="password" id="cfgImKey" placeholder="tu-api-key-de-immich">
+        <div class="helper-text">Ajustes → Claves API en tu perfil de Immich</div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn-test btn btn-ghost" onclick="testConn('immich')">🔌 Probar conexión</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px">
+      <button class="btn btn-primary" onclick="saveConfig()">💾 Guardar configuración</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Persistent Notifications -->
+<div class="notif-container" id="notifContainer"></div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Countdown widget -->
+<div class="countdown-widget" id="countdownWidget">
+  <span class="countdown-icon">🔄</span>
+  <span class="countdown-text">Próxima verificación: <span class="countdown-seconds" id="countdownSec">30</span>s</span>
+  <div class="countdown-bar"><div class="countdown-fill" id="countdownFill"></div></div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let currentFile = null;
+let destinations = [];
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+const STATUS_POLL_SECONDS = 30;
+let countdownRemaining = STATUS_POLL_SECONDS;
+let countdownInterval = null;
+let lastStatusTg = null; // null = unknown, true = ok, false = err
+let lastStatusIm = null;
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadConfig();
+  await loadDestinations();
+  await checkStatus();
+  setupDropZone();
+  startCountdown();
+});
+
+function startCountdown() {
+  countdownRemaining = STATUS_POLL_SECONDS;
+  updateCountdownUI();
+  if (countdownInterval) clearInterval(countdownInterval);
+  countdownInterval = setInterval(() => {
+    countdownRemaining--;
+    updateCountdownUI();
+    if (countdownRemaining <= 0) {
+      checkStatus().then(() => {
+        countdownRemaining = STATUS_POLL_SECONDS;
+        updateCountdownUI();
+      });
+    }
+  }, 1000);
+}
+
+function updateCountdownUI() {
+  const secEl = document.getElementById('countdownSec');
+  const fillEl = document.getElementById('countdownFill');
+  const widget = document.getElementById('countdownWidget');
+  const pct = (countdownRemaining / STATUS_POLL_SECONDS) * 100;
+  secEl.textContent = Math.max(0, countdownRemaining);
+  fillEl.style.width = pct + '%';
+  widget.classList.toggle('checking', countdownRemaining <= 0);
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+function setTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (id === 'destinations') {
+    loadImmichAlbums();
+    loadTgTopics();
+  }
+}
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+async function loadConfig() {
+  const r = await fetch('/api/config');
+  const cfg = await r.json();
+  if (cfg.telegram_token) document.getElementById('cfgTgToken').value = cfg.telegram_token;
+  if (cfg.telegram_chat_id) document.getElementById('cfgTgChat').value = cfg.telegram_chat_id;
+  if (cfg.immich_url) document.getElementById('cfgImUrl').value = cfg.immich_url;
+  if (cfg.immich_api_key) document.getElementById('cfgImKey').value = cfg.immich_api_key;
+}
+
+async function saveConfig() {
+  const body = {
+    telegram_token: document.getElementById('cfgTgToken').value,
+    telegram_chat_id: document.getElementById('cfgTgChat').value,
+    immich_url: document.getElementById('cfgImUrl').value,
+    immich_api_key: document.getElementById('cfgImKey').value,
+  };
+  await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  toast('Configuración guardada', 'success');
+  await checkStatus();
+}
+
+// ─── Test connection ──────────────────────────────────────────────────────────
+async function testConn(service) {
+  // Save first
+  await saveConfig();
+  setChecking(service, true);
+  const name = service === 'telegram' ? 'Telegram' : 'Immich';
+  try {
+    const r = await fetch('/api/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      toast(`✅ ${name}: ${d.info}`, 'success');
+      clearNotifications(service);
+    } else {
+      addNotification(service, `${name} — Error de conexión`, d.error || 'No se pudo conectar. Revisa la configuración.', 'error');
+    }
+    updateDot(service, d.ok);
+  } catch (e) {
+    addNotification(service, `${name} — Error de red`, e.message || 'No se pudo contactar el servidor.', 'error');
+    updateDot(service, false);
+  }
+}
+
+function setChecking(service, forceFullAnim = false) {
+  const isTg = service === 'telegram';
+  const dotId = isTg ? 'dot-tg' : 'dot-im';
+  const statusId = isTg ? 'status-tg' : 'status-im';
+  const labelId = isTg ? 'label-tg' : 'label-im';
+  const name = isTg ? 'Telegram' : 'Immich';
+  const lastStatus = isTg ? lastStatusTg : lastStatusIm;
+
+  const statusEl = document.getElementById(statusId);
+  const dotEl = document.getElementById(dotId);
+
+  if (lastStatus === true && !forceFullAnim) {
+    // Already connected → subtle blink, keep "Conectado" label
+    dotEl.classList.remove('rechecking');
+    void dotEl.offsetWidth; // force reflow to restart animation
+    dotEl.classList.add('rechecking');
+  } else {
+    // Unknown or error → full shimmer animation
+    statusEl.classList.add('checking');
+    dotEl.classList.add('checking');
+    document.getElementById(labelId).textContent = name + ': verificando…';
+  }
+}
+
+async function checkStatus() {
+  // Set both to checking state
+  setChecking('telegram');
+  setChecking('immich');
+
+  // Telegram
+  try {
+    const r = await fetch('/api/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service: 'telegram' }) });
+    const d = await r.json();
+    updateDot('telegram', d.ok);
+    if (!d.ok) {
+      addNotification('telegram', 'Telegram — Sin conexión', d.error || 'No se pudo conectar al bot. Verifica el token y el Chat ID en Configuración.', 'error');
+    } else {
+      clearNotifications('telegram');
+    }
+  } catch (e) {
+    updateDot('telegram', false);
+    addNotification('telegram', 'Telegram — Error de red', 'No se pudo contactar la API de Telegram: ' + (e.message || 'error desconocido'), 'error');
+  }
+  // Immich
+  try {
+    const r = await fetch('/api/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service: 'immich' }) });
+    const d = await r.json();
+    updateDot('immich', d.ok);
+    if (!d.ok) {
+      addNotification('immich', 'Immich — Sin conexión', d.error || 'No se pudo conectar al servidor. Verifica la URL y la API Key en Configuración.', 'error');
+    } else {
+      clearNotifications('immich');
+    }
+  } catch (e) {
+    updateDot('immich', false);
+    addNotification('immich', 'Immich — Error de red', 'No se pudo contactar el servidor Immich: ' + (e.message || 'error desconocido'), 'error');
+  }
+}
+
+function updateDot(service, ok) {
+  const isTg = service === 'telegram';
+  const dotId = isTg ? 'dot-tg' : 'dot-im';
+  const statusId = isTg ? 'status-tg' : 'status-im';
+  const labelId = isTg ? 'label-tg' : 'label-im';
+  const name = isTg ? 'Telegram' : 'Immich';
+
+  // Store last known status
+  if (isTg) lastStatusTg = ok;
+  else lastStatusIm = ok;
+
+  const dotEl = document.getElementById(dotId);
+  dotEl.className = 'dot ' + (ok ? 'ok' : 'err');
+
+  const statusEl = document.getElementById(statusId);
+  statusEl.className = 'status-dot ' + (ok ? 'ok' : 'err');
+
+  document.getElementById(labelId).textContent = name + ': ' + (ok ? 'Conectado' : 'Sin conexión');
+}
+
+// ─── Destinations ─────────────────────────────────────────────────────────────
+async function loadDestinations() {
+  const r = await fetch('/api/destinations');
+  destinations = await r.json();
+  renderDestinations();
+  updateDestSelect();
+}
+
+function renderDestinations() {
+  const list = document.getElementById('destList');
+  if (!destinations.length) {
+    list.innerHTML = '<div class="empty-state">No hay destinos. Añade uno arriba.</div>';
+    return;
+  }
+  list.innerHTML = destinations.map(d => `
+    <div class="dest-item">
+      <div class="dest-name">${d.name}</div>
+      <div class="dest-ids">
+        <div>Immich: ${d.immich_album_id ? d.immich_album_id.substring(0,8)+'...' : '—'}</div>
+        <div>TG topic: ${d.telegram_topic_id || '—'}</div>
+      </div>
+      <span class="dest-badge">ID: ${d.id}</span>
+      <button class="btn btn-danger btn-sm" onclick="deleteDest('${d.id}')">🗑</button>
+    </div>
+  `).join('');
+}
+
+function updateDestSelect() {
+  const sel = document.getElementById('destSelect');
+  sel.innerHTML = '<option value="">— Selecciona un destino —</option>' +
+    destinations.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+  checkUploadReady();
+}
+
+function toggleAddForm() {
+  const f = document.getElementById('addDestForm');
+  f.classList.toggle('show');
+  if (f.classList.contains('show')) {
+    loadImmichAlbums();
+    loadTgTopics();
+  }
+}
+
+async function loadImmichAlbums() {
+  const sel = document.getElementById('newImmichAlbum');
+  sel.innerHTML = '<option value="">Cargando...</option>';
+  try {
+    const r = await fetch('/api/immich/albums');
+    const d = await r.json();
+    if (d.error) { sel.innerHTML = '<option value="">Error: configura Immich primero</option>'; return; }
+    sel.innerHTML = '<option value="">— Seleccionar álbum —</option>' +
+      d.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+  } catch {
+    sel.innerHTML = '<option value="">Error de conexión</option>';
+  }
+}
+
+async function loadTgTopics() {
+  const sel = document.getElementById('newTgTopic');
+  sel.innerHTML = '<option value="">Cargando...</option>';
+  try {
+    const r = await fetch('/api/telegram/topics');
+    const d = await r.json();
+    if (d.error) { sel.innerHTML = '<option value="">Error: configura Telegram primero</option>'; return; }
+    sel.innerHTML = '<option value="">— Seleccionar topic —</option>' +
+      d.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+  } catch {
+    sel.innerHTML = '<option value="">Error de conexión</option>';
+  }
+}
+
+async function addDest() {
+  const name = document.getElementById('newDestName').value.trim();
+  const immich_album_id = document.getElementById('newImmichAlbum').value;
+  const telegram_topic_id = document.getElementById('newTgTopic').value;
+  if (!name) { toast('Escribe un nombre', 'error'); return; }
+  if (!immich_album_id || !telegram_topic_id) { toast('Selecciona álbum y topic', 'error'); return; }
+
+  await fetch('/api/destinations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, immich_album_id, telegram_topic_id })
+  });
+  document.getElementById('newDestName').value = '';
+  document.getElementById('addDestForm').classList.remove('show');
+  await loadDestinations();
+  toast('Destino añadido ✓', 'success');
+}
+
+async function deleteDest(id) {
+  if (!confirm('¿Eliminar este destino?')) return;
+  await fetch('/api/destinations', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  });
+  await loadDestinations();
+  toast('Destino eliminado', 'info');
+}
+
+// ─── File handling ────────────────────────────────────────────────────────────
+function setupDropZone() {
+  const dz = document.getElementById('dropZone');
+  const fi = document.getElementById('fileInput');
+
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('over');
+    const file = e.dataTransfer.files[0];
+    if (file) setFile(file);
+  });
+  fi.addEventListener('change', e => {
+    if (e.target.files[0]) setFile(e.target.files[0]);
+  });
+
+  document.getElementById('destSelect').addEventListener('change', checkUploadReady);
+}
+
+function setFile(file) {
+  currentFile = file;
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('fileSize').textContent = formatSize(file.size);
+
+  const thumb = document.getElementById('fileThumb');
+  if (file.type.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    thumb.innerHTML = '';
+    thumb.appendChild(img);
+  } else if (file.type.startsWith('video/')) {
+    const vid = document.createElement('video');
+    vid.src = URL.createObjectURL(file);
+    vid.muted = true;
+    thumb.innerHTML = '';
+    thumb.appendChild(vid);
+  } else {
+    thumb.innerHTML = '📄';
+  }
+
+  document.getElementById('filePreview').classList.add('show');
+  hideResult();
+  checkUploadReady();
+}
+
+function clearFile() {
+  currentFile = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('filePreview').classList.remove('show');
+  hideResult();
+  checkUploadReady();
+}
+
+function checkUploadReady() {
+  const destSel = document.getElementById('destSelect').value;
+  const ready = currentFile && destSel;
+  const btn = document.getElementById('uploadBtn');
+  const hint = document.getElementById('uploadHint');
+  btn.disabled = !ready;
+  hint.textContent = !currentFile ? 'Selecciona un archivo' : !destSel ? 'Selecciona un destino' : '';
+}
+
+// ─── Upload ───────────────────────────────────────────────────────────────────
+async function doUpload() {
+  const destId = document.getElementById('destSelect').value;
+  if (!currentFile || !destId) return;
+
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  hideResult();
+
+  const prog = document.getElementById('progressWrap');
+  prog.classList.add('show');
+  document.getElementById('progressLabel').textContent = 'Subiendo a Telegram e Immich...';
+
+  const fd = new FormData();
+  fd.append('file', currentFile);
+  fd.append('destination_id', destId);
+
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    prog.classList.remove('show');
+
+    const box = document.getElementById('resultBox');
+    const title = document.getElementById('resultTitle');
+    const detail = document.getElementById('resultDetail');
+    box.classList.add('show');
+
+    if (d.success) {
+      box.className = 'result-box show success';
+      title.textContent = '✅ ¡Subido correctamente a ambas plataformas!';
+      detail.textContent = [d.results.telegram, d.results.immich].filter(Boolean).join('  ·  ');
+    } else if (d.partial) {
+      box.className = 'result-box show partial';
+      title.textContent = '⚠️ Subido parcialmente';
+      detail.textContent = d.results.errors.join('\n');
+    } else {
+      box.className = 'result-box show error';
+      title.textContent = '❌ Error al subir';
+      detail.textContent = d.results.errors.join('\n');
+    }
+
+    if (d.success) clearFile();
+  } catch (e) {
+    prog.classList.remove('show');
+    showError('Error de red: ' + e.message);
+  }
+  btn.disabled = false;
+  checkUploadReady();
+}
+
+function hideResult() {
+  const box = document.getElementById('resultBox');
+  box.classList.remove('show');
+  box.className = 'result-box';
+  document.getElementById('progressWrap').classList.remove('show');
+}
+
+function showError(msg) {
+  const box = document.getElementById('resultBox');
+  box.className = 'result-box show error';
+  document.getElementById('resultTitle').textContent = '❌ ' + msg;
+  document.getElementById('resultDetail').textContent = '';
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+let toastTimer;
+function toast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ─── Persistent Notifications ─────────────────────────────────────────────────
+let notifIdCounter = 0;
+
+function addNotification(service, title, message, type = 'error') {
+  // Remove existing notifications for the same service to avoid duplicates
+  clearNotifications(service);
+
+  const container = document.getElementById('notifContainer');
+  const id = 'notif-' + (++notifIdCounter);
+  const icon = type === 'error' ? '🚨' : '⚠️';
+
+  const el = document.createElement('div');
+  el.className = `notif ${type}`;
+  el.id = id;
+  el.dataset.service = service;
+  el.innerHTML = `
+    <span class="notif-icon">${icon}</span>
+    <div class="notif-body">
+      <div class="notif-title">${title}</div>
+      <div class="notif-msg">${message}</div>
+    </div>
+    <button class="notif-close" onclick="dismissNotification('${id}')" title="Cerrar">✕</button>
+  `;
+  container.appendChild(el);
+}
+
+function dismissNotification(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('removing');
+  setTimeout(() => el.remove(), 250);
+}
+
+function clearNotifications(service) {
+  const container = document.getElementById('notifContainer');
+  container.querySelectorAll(`.notif[data-service="${service}"]`).forEach(el => {
+    el.classList.add('removing');
+    setTimeout(() => el.remove(), 250);
+  });
+}
+</script>
+</body>
+</html>
