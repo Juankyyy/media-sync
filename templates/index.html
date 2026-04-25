@@ -1164,7 +1164,7 @@
         </div>
         <div id="tgUploadProgress">
           <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
-          <div style="font-size: 12px; color: var(--muted); font-family: var(--font-mono);">Subiendo...</div>
+          <div id="tgUploadText" style="font-size: 12px; color: var(--muted); font-family: var(--font-mono); margin-top: 4px;">Subiendo...</div>
         </div>
         <div id="tgUploadResult" style="display:none; margin-top: 12px; font-size: 13px; font-family: var(--font-mono); white-space: pre-wrap; line-height: 1.4;"></div>
       </div>
@@ -1177,7 +1177,7 @@
         </div>
         <div id="imUploadProgress">
           <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
-          <div style="font-size: 12px; color: var(--muted); font-family: var(--font-mono);">Subiendo...</div>
+          <div id="imUploadText" style="font-size: 12px; color: var(--muted); font-family: var(--font-mono); margin-top: 4px;">Subiendo...</div>
         </div>
         <div id="imUploadResult" style="display:none; margin-top: 12px; font-size: 13px; font-family: var(--font-mono); white-space: pre-wrap; line-height: 1.4;"></div>
       </div>
@@ -1672,6 +1672,19 @@ async function doUpload() {
   document.getElementById('uploadModalActions').style.display = 'none';
   document.getElementById('uploadModalClose').style.display = 'none';
   
+  // Reset progress bars
+  const tgFill = tgProg.querySelector('.progress-fill');
+  const imFill = imProg.querySelector('.progress-fill');
+  const tgText = document.getElementById('tgUploadText');
+  const imText = document.getElementById('imUploadText');
+  
+  tgFill.classList.remove('indeterminate');
+  imFill.classList.remove('indeterminate');
+  tgFill.style.width = '0%';
+  imFill.style.width = '0%';
+  tgText.textContent = 'Inicializando...';
+  imText.textContent = 'Inicializando...';
+
   modal.classList.add('show');
 
   const fd = new FormData();
@@ -1682,56 +1695,100 @@ async function doUpload() {
   fd.append('destination_id', destId);
 
   try {
-    const r = await fetch('/api/upload', { method: 'POST', body: fd });
-    const d = await r.json();
-    
-    tgProg.style.display = 'none';
-    imProg.style.display = 'none';
-    tgRes.style.display = 'block';
-    imRes.style.display = 'block';
-    document.getElementById('uploadModalActions').style.display = 'flex';
-    document.getElementById('uploadModalClose').style.display = 'block';
+    const rStart = await fetch('/api/upload', { method: 'POST', body: fd });
+    const dStart = await rStart.json();
 
-    if (d.results) {
-      // Telegram result
-      const destName = document.getElementById('destSelect').options[document.getElementById('destSelect').selectedIndex].text.split(' - ')[0];
-
-      if (d.results.telegram.success_count > 0 && d.results.telegram.errors.length === 0) {
-        tgRes.innerHTML = `<span style="color:var(--success)">✅ Se subió correctamente (${d.results.telegram.success_count})</span>`;
-      } else if (d.results.telegram.errors.length > 0) {
-        const text = d.results.telegram.success_count > 0 ? `<span style="color:var(--warn)">⚠️ Parcial: ${d.results.telegram.success_count} subidos</span>\n` : `<span style="color:var(--danger)">❌ Error al subir</span>\n`;
-        tgRes.innerHTML = text + `<span style="color:var(--danger)">${d.results.telegram.errors.join('\n')}</span>`;
-      } else {
-        tgRes.innerHTML = `<span style="color:var(--danger)">❌ Error desconocido</span>`;
-      }
-
-      // Immich result
-      if (d.results.immich.success_count > 0 && d.results.immich.errors.length === 0) {
-        imRes.innerHTML = `<span style="color:var(--success)">✅ Se subió correctamente (${d.results.immich.success_count})</span>`;
-      } else if (d.results.immich.errors.length > 0) {
-        const text = d.results.immich.success_count > 0 ? `<span style="color:var(--warn)">⚠️ Parcial: ${d.results.immich.success_count} subidos</span>\n` : `<span style="color:var(--danger)">❌ Error al subir</span>\n`;
-        imRes.innerHTML = text + `<span style="color:var(--danger)">${d.results.immich.errors.join('\n')}</span>`;
-      } else {
-        imRes.innerHTML = `<span style="color:var(--danger)">❌ Error desconocido</span>`;
-      }
-    } else {
-      tgRes.innerHTML = `<span style="color:var(--danger)">❌ ${d.error || 'Error'}</span>`;
-      imRes.innerHTML = `<span style="color:var(--danger)">❌ ${d.error || 'Error'}</span>`;
+    if (dStart.error) {
+      throw new Error(dStart.error);
     }
 
-    if (d.success) clearAllFiles();
+    const taskId = dStart.task_id;
+
+    // Poll status
+    const pollInterval = setInterval(async () => {
+      try {
+        const rStat = await fetch('/api/upload_status/' + taskId);
+        const task = await rStat.json();
+
+        if (task.error) {
+          clearInterval(pollInterval);
+          throw new Error(task.error);
+        }
+
+        // Update progress UI independently
+        ['tg', 'im'].forEach(api => {
+          const t = task[api];
+          const prog = api === 'tg' ? tgProg : imProg;
+          const res = api === 'tg' ? tgRes : imRes;
+          const fill = api === 'tg' ? tgFill : imFill;
+          const text = api === 'tg' ? tgText : imText;
+          
+          if (t.status === 'completed') {
+            prog.style.display = 'none';
+            res.style.display = 'block';
+            
+            if (t.success > 0 && t.errors.length === 0) {
+              res.innerHTML = `<span style="color:var(--success)">✅ Se subió correctamente (${t.success})</span>`;
+            } else if (t.errors.length > 0) {
+              const prefix = t.success > 0 ? `<span style="color:var(--warn)">⚠️ Parcial: ${t.success} subidos</span>\n` : `<span style="color:var(--danger)">❌ Error al subir</span>\n`;
+              res.innerHTML = prefix + `<span style="color:var(--danger)">${t.errors.join('\n')}</span>`;
+            } else {
+              res.innerHTML = `<span style="color:var(--danger)">❌ Error desconocido</span>`;
+            }
+          } else {
+            if (t.total > 0) {
+              let pct = (t.uploaded / t.total) * 100;
+              if (pct > 100) pct = 100;
+              fill.style.width = pct + '%';
+              if (t.uploaded === 0) {
+                text.textContent = 'Inicializando...';
+              } else {
+                text.textContent = `Subiendo... (${formatSize(t.uploaded)} / ${formatSize(t.total)})`;
+              }
+            } else {
+              text.textContent = 'Inicializando...';
+            }
+          }
+        });
+
+        if (task.status === 'completed') {
+          clearInterval(pollInterval);
+          document.getElementById('uploadModalActions').style.display = 'flex';
+          document.getElementById('uploadModalClose').style.display = 'block';
+
+          if (task.results && task.results.success) clearAllFiles();
+          
+          btn.disabled = false;
+          checkUploadReady();
+        }
+      } catch (err) {
+        clearInterval(pollInterval);
+        handleUploadError(err);
+      }
+    }, 1000);
+
   } catch (e) {
-    tgProg.style.display = 'none';
-    imProg.style.display = 'none';
-    tgRes.style.display = 'block';
-    imRes.style.display = 'block';
-    document.getElementById('uploadModalActions').style.display = 'flex';
-    document.getElementById('uploadModalClose').style.display = 'block';
-    
-    tgRes.innerHTML = `<span style="color:var(--danger)">❌ Error de red: ${e.message}</span>`;
-    imRes.innerHTML = `<span style="color:var(--danger)">❌ Error de red: ${e.message}</span>`;
+    handleUploadError(e);
   }
-  btn.disabled = false;
+}
+
+function handleUploadError(e) {
+  const tgProg = document.getElementById('tgUploadProgress');
+  const imProg = document.getElementById('imUploadProgress');
+  const tgRes = document.getElementById('tgUploadResult');
+  const imRes = document.getElementById('imUploadResult');
+  
+  tgProg.style.display = 'none';
+  imProg.style.display = 'none';
+  tgRes.style.display = 'block';
+  imRes.style.display = 'block';
+  document.getElementById('uploadModalActions').style.display = 'flex';
+  document.getElementById('uploadModalClose').style.display = 'block';
+  
+  if (tgRes.innerHTML === '') tgRes.innerHTML = `<span style="color:var(--danger)">❌ Error de red: ${e.message}</span>`;
+  if (imRes.innerHTML === '') imRes.innerHTML = `<span style="color:var(--danger)">❌ Error de red: ${e.message}</span>`;
+  
+  document.getElementById('uploadBtn').disabled = false;
   checkUploadReady();
 }
 

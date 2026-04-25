@@ -3,13 +3,17 @@ import json
 import uuid
 import hashlib
 import mimetypes
+import threading
 from datetime import datetime, timezone
 import requests
+from requests_toolbelt.multipart.encoder import MultipartEncoder, MultipartEncoderMonitor
 from flask import Flask, request, jsonify, render_template
 from werkzeug.utils import secure_filename
 
+UPLOAD_TASKS = {}
+
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
+app.config['MAX_CONTENT_LENGTH'] = 2000 * 1024 * 1024  # 2 GB
 app.config['UPLOAD_FOLDER'] = 'uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -142,144 +146,181 @@ def upload():
     if not dest:
         return jsonify({'error': 'Destino no encontrado'}), 400
 
-    cfg = load_config()
     as_docs = request.form.getlist('as_document')
 
-    tg_success = 0
-    tg_errors = []
-    im_success = 0
-    im_errors = []
-
-    for idx, file in enumerate(files):
+    # Save locally to be processed in background
+    saved_files = []
+    for file in files:
         if not file.filename or not allowed_file(file.filename):
-            tg_errors.append(f"{file.filename}: Tipo de archivo no permitido")
-            im_errors.append(f"{file.filename}: Tipo de archivo no permitido")
             continue
-            
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
+        saved_files.append((filename, filepath))
+        
+    if not saved_files:
+        return jsonify({'error': 'No hay archivos válidos para subir'}), 400
 
-        file_success_tg = False
-        file_success_im = False
+    task_id = str(uuid.uuid4())
+    UPLOAD_TASKS[task_id] = {
+        'status': 'running',
+        'tg': {'uploaded': 0, 'total': 0},
+        'im': {'uploaded': 0, 'total': 0},
+        'results': None
+    }
+    
+    thread = threading.Thread(target=process_upload_task, args=(task_id, saved_files, dest, as_docs))
+    thread.daemon = True
+    thread.start()
 
-        # ── Upload to Telegram ─────────────────────────────────────────────────────
-        try:
-            token = cfg['telegram_token']
-            chat_id = cfg['telegram_chat_id']
-            topic_id = dest.get('telegram_topic_id')
+    return jsonify({'task_id': task_id})
 
-            video = is_video(filename)
+@app.route('/api/upload_status/<task_id>', methods=['GET'])
+def upload_status(task_id):
+    task = UPLOAD_TASKS.get(task_id)
+    if not task:
+        return jsonify({'error': 'No encontrado'}), 404
+    return jsonify(task)
+
+def process_upload_task(task_id, saved_files, dest, as_docs):
+    task = UPLOAD_TASKS[task_id]
+    cfg = load_config()
+
+    total_size = sum(os.path.getsize(fp) for _, fp in saved_files)
+    task['tg'] = {'uploaded': 0, 'total': total_size, 'status': 'running', 'success': 0, 'errors': []}
+    task['im'] = {'uploaded': 0, 'total': total_size, 'status': 'running', 'success': 0, 'errors': []}
+
+    def tg_worker():
+        tg_success = 0; tg_errors = []
+        tg_uploaded_prev = 0
+        for idx, (filename, filepath) in enumerate(saved_files):
+            file_size = os.path.getsize(filepath)
+            try:
+                file_size_mb = file_size / (1024 * 1024)
+                if file_size_mb > 49.5:
+                    tg_errors.append(f'{filename}: Supera el límite de 50MB de Telegram ({file_size_mb:.1f}MB)')
+                    tg_uploaded_prev += file_size
+                    task['tg']['uploaded'] = tg_uploaded_prev
+                    continue
+
+                token = cfg['telegram_token']
+                chat_id = cfg['telegram_chat_id']
+                topic_id = dest.get('telegram_topic_id')
+                video = is_video(filename)
+                
+                send_as_doc = False
+                if idx < len(as_docs) and as_docs[idx] == 'true':
+                    send_as_doc = True
+                
+                if send_as_doc:
+                    method = 'sendDocument'
+                    field = 'document'
+                else:
+                    method = 'sendVideo' if video else 'sendPhoto'
+                    field = 'video' if video else 'photo'
+
+                url = f'https://api.telegram.org/bot{token}/{method}?chat_id={chat_id}'
+                if topic_id:
+                    url += f'&message_thread_id={topic_id}'
+
+                def tg_callback(monitor):
+                    task['tg']['uploaded'] = tg_uploaded_prev + monitor.bytes_read
+
+                mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+                encoder = MultipartEncoder(fields={
+                    field: (filename, open(filepath, 'rb'), mime)
+                })
+                monitor = MultipartEncoderMonitor(encoder, tg_callback)
+                
+                r = requests.post(url, data=monitor, headers={'Content-Type': monitor.content_type}, timeout=120)
+                
+                data = r.json()
+                if data.get('ok'):
+                    tg_success += 1
+                else:
+                    tg_errors.append(f'{filename}: {data.get("description", "Error desconocido")}')
+            except Exception as e:
+                error_msg = str(e)
+                if '10054' in error_msg or 'Connection aborted' in error_msg:
+                    tg_errors.append(f'{filename}: Se interrumpió la conexión (posiblemente supera el límite de tamaño)')
+                else:
+                    tg_errors.append(f'{filename}: Error de red ({error_msg[:100]}...)')
             
-            send_as_doc = False
-            if idx < len(as_docs) and as_docs[idx] == 'true':
-                send_as_doc = True
-            
-            if send_as_doc:
-                method = 'sendDocument'
-                field = 'document'
-            else:
-                method = 'sendVideo' if video else 'sendPhoto'
-                field = 'video' if video else 'photo'
+            tg_uploaded_prev += file_size
+            task['tg']['uploaded'] = tg_uploaded_prev
+        
+        task['tg']['success'] = tg_success
+        task['tg']['errors'] = tg_errors
+        task['tg']['status'] = 'completed'
 
-            params = {'chat_id': chat_id}
-            if topic_id:
-                params['message_thread_id'] = topic_id
+    def im_worker():
+        im_success = 0; im_errors = []
+        im_uploaded_prev = 0
+        for idx, (filename, filepath) in enumerate(saved_files):
+            file_size = os.path.getsize(filepath)
+            try:
+                immich_url = cfg['immich_url'].rstrip('/')
+                api_key = cfg['immich_api_key']
+                album_id = dest.get('immich_album_id')
 
-            with open(filepath, 'rb') as f:
-                r = requests.post(
-                    f'https://api.telegram.org/bot{token}/{method}',
-                    params=params,
-                    files={field: (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')},
-                    timeout=120
-                )
-            data = r.json()
-            if data.get('ok'):
-                file_success_tg = True
-            else:
-                tg_errors.append(f'{filename}: {data.get("description", "Error desconocido")}')
-        except Exception as e:
-            tg_errors.append(f'{filename}: {str(e)}')
+                with open(filepath, 'rb') as f:
+                    checksum = hashlib.sha1(f.read()).hexdigest()
 
-        # ── Upload to Immich ───────────────────────────────────────────────────────
-        try:
-            immich_url = cfg['immich_url'].rstrip('/')
-            api_key = cfg['immich_api_key']
-            album_id = dest.get('immich_album_id')
+                file_mtime = os.path.getmtime(filepath)
+                file_dt = datetime.fromtimestamp(file_mtime, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
-            # Compute checksum
-            with open(filepath, 'rb') as f:
-                checksum = hashlib.sha1(f.read()).hexdigest()
+                def im_callback(monitor):
+                    task['im']['uploaded'] = im_uploaded_prev + monitor.bytes_read
 
-            mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+                mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+                encoder = MultipartEncoder(fields={
+                    'deviceAssetId': f'{filename}-{checksum[:8]}',
+                    'deviceId': 'media-sync-app',
+                    'fileCreatedAt': file_dt,
+                    'fileModifiedAt': file_dt,
+                    'assetData': (filename, open(filepath, 'rb'), mime)
+                })
+                monitor = MultipartEncoderMonitor(encoder, im_callback)
 
-            # Use actual file timestamps to preserve original metadata
-            file_mtime = os.path.getmtime(filepath)
-            file_dt = datetime.fromtimestamp(file_mtime, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                r = requests.post(f'{immich_url}/api/assets', data=monitor, headers={'x-api-key': api_key, 'Content-Type': monitor.content_type}, timeout=120)
 
-            with open(filepath, 'rb') as f:
-                r = requests.post(
-                    f'{immich_url}/api/assets',
-                    headers={'x-api-key': api_key},
-                    data={
-                        'deviceAssetId': f'{filename}-{checksum[:8]}',
-                        'deviceId': 'media-sync-app',
-                        'fileCreatedAt': file_dt,
-                        'fileModifiedAt': file_dt,
-                    },
-                    files={'assetData': (filename, f, mime)},
-                    timeout=120
-                )
+                if r.status_code in (200, 201):
+                    asset_data = r.json()
+                    asset_id = asset_data.get('id')
+                    if album_id and asset_id:
+                        requests.put(f'{immich_url}/api/albums/{album_id}/assets', headers={'x-api-key': api_key, 'Content-Type': 'application/json'}, json={'ids': [asset_id]}, timeout=10)
+                    im_success += 1
+                else:
+                    im_errors.append(f'{filename}: {r.text[:200]}')
+            except Exception as e:
+                error_msg = str(e)
+                if '10054' in error_msg or 'Connection aborted' in error_msg:
+                    im_errors.append(f'{filename}: Se interrumpió la conexión con el servidor (posiblemente por tamaño excesivo o timeout)')
+                else:
+                    im_errors.append(f'{filename}: Error de red ({error_msg[:100]}...)')
 
-            if r.status_code in (200, 201):
-                asset_data = r.json()
-                asset_id = asset_data.get('id')
+            im_uploaded_prev += file_size
+            task['im']['uploaded'] = im_uploaded_prev
 
-                # Add to album
-                if album_id and asset_id:
-                    requests.put(
-                        f'{immich_url}/api/albums/{album_id}/assets',
-                        headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
-                        json={'ids': [asset_id]},
-                        timeout=10
-                    )
-                file_success_im = True
-            else:
-                im_errors.append(f'{filename}: {r.text[:200]}')
-        except Exception as e:
-            im_errors.append(f'{filename}: {str(e)}')
+        task['im']['success'] = im_success
+        task['im']['errors'] = im_errors
+        task['im']['status'] = 'completed'
 
-        # Cleanup
+    t1 = threading.Thread(target=tg_worker)
+    t2 = threading.Thread(target=im_worker)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    # Cleanup file
+    for _, filepath in saved_files:
         try:
             os.remove(filepath)
         except Exception:
             pass
 
-        if file_success_tg:
-            tg_success += 1
-        if file_success_im:
-            im_success += 1
-
-    total_errors = len(tg_errors) + len(im_errors)
-    total_success = tg_success + im_success
-
-    success = total_errors == 0 and total_success > 0
-    partial = total_success > 0 and total_errors > 0
-
-    return jsonify({
-        'success': success,
-        'partial': partial,
-        'results': {
-            'telegram': {
-                'success_count': tg_success,
-                'errors': tg_errors
-            },
-            'immich': {
-                'success_count': im_success,
-                'errors': im_errors
-            }
-        }
-    })
+    task['status'] = 'completed'
 
 @app.route('/api/test', methods=['POST'])
 def test_connection():
