@@ -132,121 +132,142 @@ def immich_albums():
 
 @app.route('/api/upload', methods=['POST'])
 def upload():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No se encontró el archivo'}), 400
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'error': 'No se encontraron archivos'}), 400
 
-    file = request.files['file']
     dest_id = request.form.get('destination_id')
-
-    if not file.filename or not allowed_file(file.filename):
-        return jsonify({'error': 'Tipo de archivo no permitido'}), 400
-
     dests = load_destinations()
     dest = next((d for d in dests if d['id'] == dest_id), None)
     if not dest:
         return jsonify({'error': 'Destino no encontrado'}), 400
 
     cfg = load_config()
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
+    as_docs = request.form.getlist('as_document')
 
-    results = {'telegram': None, 'immich': None, 'errors': []}
+    all_results = {'success_count': 0, 'error_count': 0, 'errors': []}
 
-    # ── Upload to Telegram ─────────────────────────────────────────────────────
-    try:
-        token = cfg['telegram_token']
-        chat_id = cfg['telegram_chat_id']
-        topic_id = dest.get('telegram_topic_id')
+    for idx, file in enumerate(files):
+        if not file.filename or not allowed_file(file.filename):
+            all_results['errors'].append(f"{file.filename}: Tipo de archivo no permitido")
+            all_results['error_count'] += 1
+            continue
+            
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
 
-        as_document = request.form.get('as_document') == 'true'
-        video = is_video(filename)
-        
-        if as_document:
-            method = 'sendDocument'
-            field = 'document'
-        else:
-            method = 'sendVideo' if video else 'sendPhoto'
-            field = 'video' if video else 'photo'
+        file_success_tg = False
+        file_success_im = False
 
-        params = {'chat_id': chat_id}
-        if topic_id:
-            params['message_thread_id'] = topic_id
+        # ── Upload to Telegram ─────────────────────────────────────────────────────
+        try:
+            token = cfg['telegram_token']
+            chat_id = cfg['telegram_chat_id']
+            topic_id = dest.get('telegram_topic_id')
 
-        with open(filepath, 'rb') as f:
-            r = requests.post(
-                f'https://api.telegram.org/bot{token}/{method}',
-                params=params,
-                files={field: (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')},
-                timeout=120
-            )
-        data = r.json()
-        if data.get('ok'):
-            results['telegram'] = '✓ Subido a Telegram'
-        else:
-            results['errors'].append(f'Telegram: {data.get("description", "Error desconocido")}')
-    except Exception as e:
-        results['errors'].append(f'Telegram: {str(e)}')
+            video = is_video(filename)
+            
+            send_as_doc = False
+            if idx < len(as_docs) and as_docs[idx] == 'true':
+                send_as_doc = True
+            
+            if send_as_doc:
+                method = 'sendDocument'
+                field = 'document'
+            else:
+                method = 'sendVideo' if video else 'sendPhoto'
+                field = 'video' if video else 'photo'
 
-    # ── Upload to Immich ───────────────────────────────────────────────────────
-    try:
-        immich_url = cfg['immich_url'].rstrip('/')
-        api_key = cfg['immich_api_key']
-        album_id = dest.get('immich_album_id')
+            params = {'chat_id': chat_id}
+            if topic_id:
+                params['message_thread_id'] = topic_id
 
-        # Compute checksum
-        with open(filepath, 'rb') as f:
-            checksum = hashlib.sha1(f.read()).hexdigest()
-
-        mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-
-        # Use actual file timestamps to preserve original metadata
-        file_mtime = os.path.getmtime(filepath)
-        file_dt = datetime.fromtimestamp(file_mtime, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
-
-        with open(filepath, 'rb') as f:
-            r = requests.post(
-                f'{immich_url}/api/assets',
-                headers={'x-api-key': api_key},
-                data={
-                    'deviceAssetId': f'{filename}-{checksum[:8]}',
-                    'deviceId': 'media-sync-app',
-                    'fileCreatedAt': file_dt,
-                    'fileModifiedAt': file_dt,
-                },
-                files={'assetData': (filename, f, mime)},
-                timeout=120
-            )
-
-        if r.status_code in (200, 201):
-            asset_data = r.json()
-            asset_id = asset_data.get('id')
-
-            # Add to album
-            if album_id and asset_id:
-                requests.put(
-                    f'{immich_url}/api/albums/{album_id}/assets',
-                    headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
-                    json={'ids': [asset_id]},
-                    timeout=10
+            with open(filepath, 'rb') as f:
+                r = requests.post(
+                    f'https://api.telegram.org/bot{token}/{method}',
+                    params=params,
+                    files={field: (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')},
+                    timeout=120
                 )
-            results['immich'] = '✓ Subido a Immich'
+            data = r.json()
+            if data.get('ok'):
+                file_success_tg = True
+            else:
+                all_results['errors'].append(f'Telegram ({filename}): {data.get("description", "Error desconocido")}')
+        except Exception as e:
+            all_results['errors'].append(f'Telegram ({filename}): {str(e)}')
+
+        # ── Upload to Immich ───────────────────────────────────────────────────────
+        try:
+            immich_url = cfg['immich_url'].rstrip('/')
+            api_key = cfg['immich_api_key']
+            album_id = dest.get('immich_album_id')
+
+            # Compute checksum
+            with open(filepath, 'rb') as f:
+                checksum = hashlib.sha1(f.read()).hexdigest()
+
+            mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+
+            # Use actual file timestamps to preserve original metadata
+            file_mtime = os.path.getmtime(filepath)
+            file_dt = datetime.fromtimestamp(file_mtime, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
+            with open(filepath, 'rb') as f:
+                r = requests.post(
+                    f'{immich_url}/api/assets',
+                    headers={'x-api-key': api_key},
+                    data={
+                        'deviceAssetId': f'{filename}-{checksum[:8]}',
+                        'deviceId': 'media-sync-app',
+                        'fileCreatedAt': file_dt,
+                        'fileModifiedAt': file_dt,
+                    },
+                    files={'assetData': (filename, f, mime)},
+                    timeout=120
+                )
+
+            if r.status_code in (200, 201):
+                asset_data = r.json()
+                asset_id = asset_data.get('id')
+
+                # Add to album
+                if album_id and asset_id:
+                    requests.put(
+                        f'{immich_url}/api/albums/{album_id}/assets',
+                        headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
+                        json={'ids': [asset_id]},
+                        timeout=10
+                    )
+                file_success_im = True
+            else:
+                all_results['errors'].append(f'Immich ({filename}): {r.text[:200]}')
+        except Exception as e:
+            all_results['errors'].append(f'Immich ({filename}): {str(e)}')
+
+        # Cleanup
+        try:
+            os.remove(filepath)
+        except Exception:
+            pass
+
+        if file_success_tg and file_success_im:
+            all_results['success_count'] += 1
         else:
-            results['errors'].append(f'Immich: {r.text[:200]}')
-    except Exception as e:
-        results['errors'].append(f'Immich: {str(e)}')
+            all_results['error_count'] += 1
 
-    # Cleanup
-    try:
-        os.remove(filepath)
-    except Exception:
-        pass
+    success = all_results['error_count'] == 0 and all_results['success_count'] > 0
+    partial = all_results['success_count'] > 0 and all_results['error_count'] > 0
 
-    success = bool(results['telegram'] and results['immich'])
     return jsonify({
         'success': success,
-        'partial': bool((results['telegram'] or results['immich']) and results['errors']),
-        'results': results
+        'partial': partial,
+        'results': {
+            'telegram': f"✓ {all_results['success_count']} archivo(s) en Telegram" if all_results['success_count'] > 0 else None,
+            'immich': f"✓ {all_results['success_count']} archivo(s) en Immich" if all_results['success_count'] > 0 else None,
+            'errors': all_results['errors']
+        }
     })
 
 @app.route('/api/test', methods=['POST'])

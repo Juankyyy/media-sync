@@ -985,22 +985,15 @@
         <span class="drop-icon">🖼️</span>
         <div class="drop-title">Arrastra tu foto o vídeo aquí</div>
         <div class="drop-sub">o haz clic para seleccionar — JPG, PNG, MP4, MOV...</div>
-        <input type="file" id="fileInput" accept="image/*,video/*" style="display:none">
+        <input type="file" id="fileInput" accept="image/*,video/*" multiple style="display:none">
       </div>
 
-      <!-- File preview -->
-      <div class="file-preview" id="filePreview">
-        <div class="file-thumb" id="fileThumb">📄</div>
-        <div class="file-info">
-          <div class="file-name" id="fileName">—</div>
-          <div class="file-size" id="fileSize">—</div>
-        </div>
-        <label class="btn-toggle" style="margin-right: 12px;">
-          <input type="checkbox" id="sendAsDocument" onchange="this.parentElement.classList.toggle('active', this.checked)">
-          <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Archivo
-        </label>
-        <button class="btn btn-ghost btn-sm" onclick="clearFile()">✕ Quitar</button>
+      <!-- File preview list -->
+      <div id="filePreviewList" style="display:none; margin-top:20px; flex-direction:column; gap:10px;"></div>
+      
+      <!-- File actions -->
+      <div id="filePreviewActions" style="display:none; margin-top:10px; justify-content:flex-end; align-items:center; border-top:1px solid var(--border); padding-top:10px;">
+        <button class="btn btn-ghost btn-sm" onclick="clearAllFiles()">✕ Quitar todos</button>
       </div>
 
       <hr class="divider">
@@ -1176,7 +1169,7 @@
 
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
-let currentFile = null;
+let currentFiles = [];
 let destinations = [];
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -1520,63 +1513,104 @@ function setupDropZone() {
   dz.addEventListener('drop', e => {
     e.preventDefault();
     dz.classList.remove('over');
-    const file = e.dataTransfer.files[0];
-    if (file) setFile(file);
+    const files = e.dataTransfer.files;
+    if (files.length > 0) addFiles(files);
   });
   fi.addEventListener('change', e => {
-    if (e.target.files[0]) setFile(e.target.files[0]);
+    if (e.target.files.length > 0) addFiles(e.target.files);
   });
 
   document.getElementById('destSelect').addEventListener('change', checkUploadReady);
 }
 
-function setFile(file) {
-  currentFile = file;
-  document.getElementById('fileName').textContent = file.name;
-  document.getElementById('fileSize').textContent = formatSize(file.size);
-
-  const thumb = document.getElementById('fileThumb');
-  if (file.type.startsWith('image/')) {
-    const img = document.createElement('img');
-    img.src = URL.createObjectURL(file);
-    thumb.innerHTML = '';
-    thumb.appendChild(img);
-  } else if (file.type.startsWith('video/')) {
-    const vid = document.createElement('video');
-    vid.src = URL.createObjectURL(file);
-    vid.muted = true;
-    thumb.innerHTML = '';
-    thumb.appendChild(vid);
-  } else {
-    thumb.innerHTML = '📄';
+function addFiles(files) {
+  for(let i=0; i<files.length; i++) {
+    currentFiles.push({
+      id: Math.random().toString(36).substr(2, 9),
+      file: files[i],
+      asDocument: false
+    });
   }
-
-  document.getElementById('filePreview').classList.add('show');
-  hideResult();
-  checkUploadReady();
+  renderFilePreviews();
 }
 
-function clearFile() {
-  currentFile = null;
+function toggleAsDocument(id, checked) {
+  const fItem = currentFiles.find(f => f.id === id);
+  if (fItem) fItem.asDocument = checked;
+}
+
+function removeFile(id) {
+  currentFiles = currentFiles.filter(f => f.id !== id);
+  renderFilePreviews();
+}
+
+function clearAllFiles() {
+  currentFiles = [];
   document.getElementById('fileInput').value = '';
-  document.getElementById('filePreview').classList.remove('show');
+  renderFilePreviews();
+  hideResult();
+}
+
+function renderFilePreviews() {
+  const list = document.getElementById('filePreviewList');
+  const actions = document.getElementById('filePreviewActions');
+  list.innerHTML = '';
+  
+  if (currentFiles.length === 0) {
+    list.style.display = 'none';
+    actions.style.display = 'none';
+    checkUploadReady();
+    return;
+  }
+  
+  currentFiles.forEach(fItem => {
+    const file = fItem.file;
+    const div = document.createElement('div');
+    div.className = 'file-preview show';
+    div.style.marginTop = '0';
+    
+    let thumbHtml = '📄';
+    if (file.type.startsWith('image/')) {
+      thumbHtml = `<img src="${URL.createObjectURL(file)}">`;
+    } else if (file.type.startsWith('video/')) {
+      thumbHtml = `<video src="${URL.createObjectURL(file)}" muted></video>`;
+    }
+    
+    div.innerHTML = `
+      <div class="file-thumb">${thumbHtml}</div>
+      <div class="file-info">
+        <div class="file-name">${file.name}</div>
+        <div class="file-size">${formatSize(file.size)}</div>
+      </div>
+      <label class="btn-toggle ${fItem.asDocument ? 'active' : ''}" style="margin-right: 12px;">
+        <input type="checkbox" onchange="toggleAsDocument('${fItem.id}', this.checked); this.parentElement.classList.toggle('active', this.checked)" ${fItem.asDocument ? 'checked' : ''}>
+        <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        Archivo
+      </label>
+      <button class="btn btn-ghost btn-sm" onclick="removeFile('${fItem.id}')">✕</button>
+    `;
+    list.appendChild(div);
+  });
+  
+  list.style.display = 'flex';
+  actions.style.display = 'flex';
   hideResult();
   checkUploadReady();
 }
 
 function checkUploadReady() {
   const destSel = document.getElementById('destSelect').value;
-  const ready = currentFile && destSel;
+  const ready = currentFiles.length > 0 && destSel;
   const btn = document.getElementById('uploadBtn');
   const hint = document.getElementById('uploadHint');
   btn.disabled = !ready;
-  hint.textContent = !currentFile ? 'Selecciona un archivo' : !destSel ? 'Selecciona un destino' : '';
+  hint.textContent = currentFiles.length === 0 ? 'Selecciona un archivo' : !destSel ? 'Selecciona un destino' : '';
 }
 
 // ─── Upload ───────────────────────────────────────────────────────────────────
 async function doUpload() {
   const destId = document.getElementById('destSelect').value;
-  if (!currentFile || !destId) return;
+  if (currentFiles.length === 0 || !destId) return;
 
   const btn = document.getElementById('uploadBtn');
   btn.disabled = true;
@@ -1584,14 +1618,14 @@ async function doUpload() {
 
   const prog = document.getElementById('progressWrap');
   prog.classList.add('show');
-  document.getElementById('progressLabel').textContent = 'Subiendo a Telegram e Immich...';
-
-  const asDocument = document.getElementById('sendAsDocument').checked;
+  document.getElementById('progressLabel').textContent = `Subiendo ${currentFiles.length} archivo(s) a Telegram e Immich...`;
 
   const fd = new FormData();
-  fd.append('file', currentFile);
+  currentFiles.forEach(f => {
+    fd.append('files', f.file);
+    fd.append('as_document', f.asDocument ? 'true' : 'false');
+  });
   fd.append('destination_id', destId);
-  fd.append('as_document', asDocument ? 'true' : 'false');
 
   try {
     const r = await fetch('/api/upload', { method: 'POST', body: fd });
@@ -1617,7 +1651,7 @@ async function doUpload() {
       detail.textContent = d.results.errors.join('\n');
     }
 
-    if (d.success) clearFile();
+    if (d.success) clearAllFiles();
   } catch (e) {
     prog.classList.remove('show');
     showError('Error de red: ' + e.message);
