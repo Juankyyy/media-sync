@@ -15,6 +15,7 @@ UPLOAD_TASKS = {}
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2000 * 1024 * 1024  # 2 GB
 app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 CONFIG_FILE = 'config.json'

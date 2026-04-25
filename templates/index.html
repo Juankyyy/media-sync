@@ -6,7 +6,7 @@
 <title>Media Sync — Telegram × Immich</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=3">
 
 </head>
 <body>
@@ -214,7 +214,7 @@
 
 <!-- Upload Progress Modal -->
 <div class="modal-overlay" id="uploadModal">
-  <div class="modal" style="max-width: 800px;">
+  <div class="modal upload-modal-box">
     <div class="modal-header">
       <div class="modal-title" style="display:flex; align-items:center;">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; color: var(--primary);"><polyline points="16 16 12 12 8 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path><polyline points="16 16 12 12 8 16"></polyline></svg>
@@ -223,7 +223,7 @@
       <!-- No close button initially to prevent closing while uploading -->
       <button class="modal-close" id="uploadModalClose" onclick="closeUploadModal()" style="display:none;">✕</button>
     </div>
-    <div style="display:flex; gap: 20px;">
+    <div class="upload-cols">
       <!-- Left: Telegram -->
       <div id="tgCol" style="flex:1; background: var(--surface2); padding: 20px; border-radius: 12px; border: 1px solid var(--border); transition: all 0.3s ease;">
         <div style="font-weight: 800; font-size: 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
@@ -266,7 +266,7 @@
   <div class="countdown-bar"><div class="countdown-fill" id="countdownFill"></div></div>
 </div>
 
-<script src="{{ url_for('static', filename='main.js') }}"></script>
+<script src="{{ url_for('static', filename='main.js') }}?v=3"></script>
 
 </body>
 </html>
