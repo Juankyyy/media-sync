@@ -112,28 +112,9 @@ def immich_albums():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/telegram/topics')
-def telegram_topics():
-    cfg = load_config()
-    token = cfg.get('telegram_token', '')
-    chat_id = cfg.get('telegram_chat_id', '')
-    if not token or not chat_id:
-        return jsonify({'error': 'Telegram no configurado'}), 400
-    try:
-        # Get forum topics
-        r = requests.get(
-            f'https://api.telegram.org/bot{token}/getForumTopics',
-            params={'chat_id': chat_id},
-            timeout=10
-        )
-        data = r.json()
-        if data.get('ok'):
-            topics = [{'id': str(t['message_thread_id']), 'name': t['name']}
-                      for t in data.get('result', {}).get('topics', [])]
-            return jsonify(sorted(topics, key=lambda x: x['name']))
-        return jsonify({'error': data.get('description', 'Error desconocido')}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# Note: Telegram Bot API does NOT have a getForumTopics method.
+# Topic IDs (message_thread_id) must be entered manually by the user.
+# Users can get them from the topic URL in Telegram Desktop/Web.
 
 @app.route('/api/upload', methods=['POST'])
 def upload():
@@ -249,14 +230,34 @@ def test_connection():
     cfg = load_config()
     try:
         if service == 'telegram':
+            token = cfg.get('telegram_token', '')
+            chat_id = cfg.get('telegram_chat_id', '')
+            if not token:
+                return jsonify({'ok': False, 'error': 'Token del bot no configurado'})
+            if not chat_id:
+                return jsonify({'ok': False, 'error': 'Chat ID del grupo no configurado'})
+            # 1. Verify bot token
             r = requests.get(
-                f'https://api.telegram.org/bot{cfg["telegram_token"]}/getMe',
+                f'https://api.telegram.org/bot{token}/getMe',
                 timeout=8
             )
             d = r.json()
-            if d.get('ok'):
-                return jsonify({'ok': True, 'info': f'Bot: @{d["result"]["username"]}'})
-            return jsonify({'ok': False, 'error': d.get('description')})
+            if not d.get('ok'):
+                return jsonify({'ok': False, 'error': f'Token inválido: {d.get("description", "error desconocido")}'})
+            bot_name = d['result']['username']
+            # 2. Verify access to group/chat
+            r2 = requests.get(
+                f'https://api.telegram.org/bot{token}/getChat',
+                params={'chat_id': chat_id},
+                timeout=8
+            )
+            d2 = r2.json()
+            if not d2.get('ok'):
+                return jsonify({'ok': False, 'error': f'No se pudo acceder al grupo ({chat_id}): {d2.get("description", "error desconocido")}'})
+            chat_title = d2.get('result', {}).get('title', chat_id)
+            is_forum = d2.get('result', {}).get('is_forum', False)
+            forum_status = 'Tópicos activados' if is_forum else '⚠️ Tópicos NO activados'
+            return jsonify({'ok': True, 'info': f'Bot: @{bot_name} · Grupo: {chat_title} · {forum_status}'})
         elif service == 'immich':
             r = requests.get(
                 f'{cfg["immich_url"].rstrip("/")}/api/users/me',

@@ -599,30 +599,6 @@
     align-items: end;
   }
 
-  /* ─── Notifications ──────────────────────────────── */
-  .toast {
-    position: fixed;
-    bottom: 32px;
-    right: 32px;
-    padding: 14px 20px;
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 600;
-    z-index: 100;
-    transform: translateY(100px);
-    opacity: 0;
-    transition: all 0.3s;
-    max-width: 320px;
-  }
-
-  .toast.show {
-    transform: translateY(0);
-    opacity: 1;
-  }
-
-  .toast.success { background: #1a3328; color: var(--success); border: 1px solid rgba(91,247,160,0.3); }
-  .toast.error { background: #33181a; color: var(--danger); border: 1px solid rgba(247,91,91,0.3); }
-  .toast.info { background: var(--surface2); color: var(--accent); border: 1px solid var(--border); }
 
   .empty-state {
     text-align: center;
@@ -708,6 +684,14 @@
 
   .notif.error .notif-title { color: var(--danger); }
   .notif.warning .notif-title { color: var(--warn); }
+
+  .notif.success {
+    background: rgba(10, 30, 20, 0.95);
+    border-color: rgba(91, 247, 160, 0.4);
+    color: #c4f8d8;
+  }
+
+  .notif.success .notif-title { color: var(--success); }
 
   .notif-msg {
     font-family: var(--font-mono);
@@ -946,13 +930,9 @@
             </div>
           </div>
           <div class="field">
-            <label>TOPIC DE TELEGRAM</label>
-            <div class="selector-row">
-              <select id="newTgTopic">
-                <option value="">— Cargando... —</option>
-              </select>
-              <button class="btn btn-ghost btn-sm" onclick="loadTgTopics()" title="Recargar">↻</button>
-            </div>
+            <label>TOPIC ID DE TELEGRAM</label>
+            <input type="text" id="newTgTopic" placeholder="ej. 123">
+            <div class="helper-text">Abre el tópico en Telegram Desktop/Web → el ID está al final de la URL (ej: .../123)</div>
           </div>
         </div>
         <div style="display:flex;gap:10px;margin-top:4px">
@@ -1018,9 +998,6 @@
 <!-- Persistent Notifications -->
 <div class="notif-container" id="notifContainer"></div>
 
-<!-- Toast -->
-<div class="toast" id="toast"></div>
-
 <!-- Countdown widget -->
 <div class="countdown-widget" id="countdownWidget">
   <span class="countdown-icon">🔄</span>
@@ -1039,6 +1016,7 @@ let countdownRemaining = STATUS_POLL_SECONDS;
 let countdownInterval = null;
 let lastStatusTg = null; // null = unknown, true = ok, false = err
 let lastStatusIm = null;
+let isChecking = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
@@ -1053,10 +1031,18 @@ function startCountdown() {
   updateCountdownUI();
   if (countdownInterval) clearInterval(countdownInterval);
   countdownInterval = setInterval(() => {
+    if (isChecking) return; // don't tick while a check is in progress
     countdownRemaining--;
     updateCountdownUI();
     if (countdownRemaining <= 0) {
+      isChecking = true;
+      updateCountdownUI();
       checkStatus().then(() => {
+        isChecking = false;
+        countdownRemaining = STATUS_POLL_SECONDS;
+        updateCountdownUI();
+      }).catch(() => {
+        isChecking = false;
         countdownRemaining = STATUS_POLL_SECONDS;
         updateCountdownUI();
       });
@@ -1082,7 +1068,6 @@ function setTab(id) {
   event.currentTarget.classList.add('active');
   if (id === 'destinations') {
     loadImmichAlbums();
-    loadTgTopics();
   }
 }
 
@@ -1104,7 +1089,7 @@ async function saveConfig() {
     immich_api_key: document.getElementById('cfgImKey').value,
   };
   await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  toast('Configuración guardada', 'success');
+  addNotification('app', 'Configuración guardada', 'Los ajustes se han actualizado correctamente.', 'success', true);
   await checkStatus();
 }
 
@@ -1122,8 +1107,7 @@ async function testConn(service) {
     });
     const d = await r.json();
     if (d.ok) {
-      toast(`✅ ${name}: ${d.info}`, 'success');
-      clearNotifications(service);
+      addNotification(service, `${name} — Conexión exitosa`, d.info || 'Conectado correctamente.', 'success');
     } else {
       addNotification(service, `${name} — Error de conexión`, d.error || 'No se pudo conectar. Revisa la configuración.', 'error');
     }
@@ -1270,26 +1254,13 @@ async function loadImmichAlbums() {
   }
 }
 
-async function loadTgTopics() {
-  const sel = document.getElementById('newTgTopic');
-  sel.innerHTML = '<option value="">Cargando...</option>';
-  try {
-    const r = await fetch('/api/telegram/topics');
-    const d = await r.json();
-    if (d.error) { sel.innerHTML = '<option value="">Error: configura Telegram primero</option>'; return; }
-    sel.innerHTML = '<option value="">— Seleccionar topic —</option>' +
-      d.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-  } catch {
-    sel.innerHTML = '<option value="">Error de conexión</option>';
-  }
-}
 
 async function addDest() {
   const name = document.getElementById('newDestName').value.trim();
   const immich_album_id = document.getElementById('newImmichAlbum').value;
-  const telegram_topic_id = document.getElementById('newTgTopic').value;
-  if (!name) { toast('Escribe un nombre', 'error'); return; }
-  if (!immich_album_id || !telegram_topic_id) { toast('Selecciona álbum y topic', 'error'); return; }
+  const telegram_topic_id = document.getElementById('newTgTopic').value.trim();
+  if (!name) { addNotification('app', 'Campo requerido', 'Escribe un nombre para el destino.', 'warning'); return; }
+  if (!immich_album_id || !telegram_topic_id) { addNotification('app', 'Campo requerido', 'Selecciona un álbum de Immich e introduce el Topic ID de Telegram.', 'warning'); return; }
 
   await fetch('/api/destinations', {
     method: 'POST',
@@ -1299,7 +1270,7 @@ async function addDest() {
   document.getElementById('newDestName').value = '';
   document.getElementById('addDestForm').classList.remove('show');
   await loadDestinations();
-  toast('Destino añadido ✓', 'success');
+  addNotification('app', 'Destino añadido', `"${name}" se ha creado correctamente.`, 'success');
 }
 
 async function deleteDest(id) {
@@ -1310,7 +1281,7 @@ async function deleteDest(id) {
     body: JSON.stringify({ id })
   });
   await loadDestinations();
-  toast('Destino eliminado', 'info');
+  addNotification('app', 'Destino eliminado', 'El destino se ha eliminado correctamente.', 'success');
 }
 
 // ─── File handling ────────────────────────────────────────────────────────────
@@ -1447,25 +1418,25 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-let toastTimer;
-function toast(msg, type = 'info') {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = `toast ${type} show`;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
-}
 
 // ─── Persistent Notifications ─────────────────────────────────────────────────
 let notifIdCounter = 0;
 
-function addNotification(service, title, message, type = 'error') {
-  // Remove existing notifications for the same service to avoid duplicates
-  clearNotifications(service);
-
+function addNotification(service, title, message, type = 'error', autoClose = false) {
   const container = document.getElementById('notifContainer');
+
+  // Check if an identical notification already exists — skip if so
+  const existing = container.querySelector(`.notif[data-service="${service}"]`);
+  if (existing) {
+    const existingTitle = existing.querySelector('.notif-title')?.textContent;
+    const existingMsg = existing.querySelector('.notif-msg')?.textContent;
+    if (existingTitle === title && existingMsg === message) return; // identical, no change needed
+    // Different error — remove old one instantly
+    existing.remove();
+  }
+
   const id = 'notif-' + (++notifIdCounter);
-  const icon = type === 'error' ? '🚨' : '⚠️';
+  const icon = type === 'error' ? '🚨' : type === 'success' ? '✅' : '⚠️';
 
   const el = document.createElement('div');
   el.className = `notif ${type}`;
@@ -1480,6 +1451,10 @@ function addNotification(service, title, message, type = 'error') {
     <button class="notif-close" onclick="dismissNotification('${id}')" title="Cerrar">✕</button>
   `;
   container.appendChild(el);
+
+  if (autoClose) {
+    setTimeout(() => dismissNotification(id), 3500);
+  }
 }
 
 function dismissNotification(id) {
