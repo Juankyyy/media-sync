@@ -159,16 +159,25 @@ def upload():
         chat_id = cfg['telegram_chat_id']
         topic_id = dest.get('telegram_topic_id')
 
+        as_document = request.form.get('as_document') == 'true'
+        video = is_video(filename)
+        
+        if as_document:
+            method = 'sendDocument'
+            field = 'document'
+        else:
+            method = 'sendVideo' if video else 'sendPhoto'
+            field = 'video' if video else 'photo'
+
         params = {'chat_id': chat_id}
         if topic_id:
             params['message_thread_id'] = topic_id
 
-        # Use sendDocument to preserve original quality (no compression)
         with open(filepath, 'rb') as f:
             r = requests.post(
-                f'https://api.telegram.org/bot{token}/sendDocument',
+                f'https://api.telegram.org/bot{token}/{method}',
                 params=params,
-                files={'document': (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')},
+                files={field: (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')},
                 timeout=120
             )
         data = r.json()

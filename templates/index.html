@@ -385,6 +385,46 @@
     background: rgba(0,229,192,0.05);
   }
 
+  /* ─── Toggle Button (Checkbox) ───────────────────── */
+  .btn-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+  }
+
+  .btn-toggle:hover {
+    background: var(--border);
+    color: var(--text);
+  }
+
+  .btn-toggle input {
+    display: none;
+  }
+
+  .btn-toggle.active {
+    background: rgba(91,108,247,0.15);
+    border-color: rgba(91,108,247,0.3);
+    color: var(--accent);
+  }
+
+  .btn-toggle.active .check-icon {
+    display: inline-block;
+  }
+
+  .btn-toggle .check-icon {
+    display: none;
+  }
+
   /* ─── Drop Zone ──────────────────────────────────── */
   .drop-zone {
     border: 2px dashed var(--border);
@@ -955,6 +995,11 @@
           <div class="file-name" id="fileName">—</div>
           <div class="file-size" id="fileSize">—</div>
         </div>
+        <label class="btn-toggle" style="margin-right: 12px;">
+          <input type="checkbox" id="sendAsDocument" onchange="this.parentElement.classList.toggle('active', this.checked)">
+          <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Archivo
+        </label>
         <button class="btn btn-ghost btn-sm" onclick="clearFile()">✕ Quitar</button>
       </div>
 
@@ -1541,9 +1586,12 @@ async function doUpload() {
   prog.classList.add('show');
   document.getElementById('progressLabel').textContent = 'Subiendo a Telegram e Immich...';
 
+  const asDocument = document.getElementById('sendAsDocument').checked;
+
   const fd = new FormData();
   fd.append('file', currentFile);
   fd.append('destination_id', destId);
+  fd.append('as_document', asDocument ? 'true' : 'false');
 
   try {
     const r = await fetch('/api/upload', { method: 'POST', body: fd });
