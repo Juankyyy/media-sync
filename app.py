@@ -145,12 +145,15 @@ def upload():
     cfg = load_config()
     as_docs = request.form.getlist('as_document')
 
-    all_results = {'success_count': 0, 'error_count': 0, 'errors': []}
+    tg_success = 0
+    tg_errors = []
+    im_success = 0
+    im_errors = []
 
     for idx, file in enumerate(files):
         if not file.filename or not allowed_file(file.filename):
-            all_results['errors'].append(f"{file.filename}: Tipo de archivo no permitido")
-            all_results['error_count'] += 1
+            tg_errors.append(f"{file.filename}: Tipo de archivo no permitido")
+            im_errors.append(f"{file.filename}: Tipo de archivo no permitido")
             continue
             
         filename = secure_filename(file.filename)
@@ -194,9 +197,9 @@ def upload():
             if data.get('ok'):
                 file_success_tg = True
             else:
-                all_results['errors'].append(f'Telegram ({filename}): {data.get("description", "Error desconocido")}')
+                tg_errors.append(f'{filename}: {data.get("description", "Error desconocido")}')
         except Exception as e:
-            all_results['errors'].append(f'Telegram ({filename}): {str(e)}')
+            tg_errors.append(f'{filename}: {str(e)}')
 
         # ── Upload to Immich ───────────────────────────────────────────────────────
         try:
@@ -242,9 +245,9 @@ def upload():
                     )
                 file_success_im = True
             else:
-                all_results['errors'].append(f'Immich ({filename}): {r.text[:200]}')
+                im_errors.append(f'{filename}: {r.text[:200]}')
         except Exception as e:
-            all_results['errors'].append(f'Immich ({filename}): {str(e)}')
+            im_errors.append(f'{filename}: {str(e)}')
 
         # Cleanup
         try:
@@ -252,21 +255,29 @@ def upload():
         except Exception:
             pass
 
-        if file_success_tg and file_success_im:
-            all_results['success_count'] += 1
-        else:
-            all_results['error_count'] += 1
+        if file_success_tg:
+            tg_success += 1
+        if file_success_im:
+            im_success += 1
 
-    success = all_results['error_count'] == 0 and all_results['success_count'] > 0
-    partial = all_results['success_count'] > 0 and all_results['error_count'] > 0
+    total_errors = len(tg_errors) + len(im_errors)
+    total_success = tg_success + im_success
+
+    success = total_errors == 0 and total_success > 0
+    partial = total_success > 0 and total_errors > 0
 
     return jsonify({
         'success': success,
         'partial': partial,
         'results': {
-            'telegram': f"✓ {all_results['success_count']} archivo(s) en Telegram" if all_results['success_count'] > 0 else None,
-            'immich': f"✓ {all_results['success_count']} archivo(s) en Immich" if all_results['success_count'] > 0 else None,
-            'errors': all_results['errors']
+            'telegram': {
+                'success_count': tg_success,
+                'errors': tg_errors
+            },
+            'immich': {
+                'success_count': im_success,
+                'errors': im_errors
+            }
         }
     })
 

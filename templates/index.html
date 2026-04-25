@@ -1017,17 +1017,7 @@
         </span>
       </div>
 
-      <!-- Progress -->
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-bar"><div class="progress-fill indeterminate" id="progressFill"></div></div>
-        <div style="font-size:12px;font-family:var(--font-mono);color:var(--muted)" id="progressLabel">Subiendo...</div>
-      </div>
 
-      <!-- Result -->
-      <div class="result-box" id="resultBox">
-        <div id="resultTitle"></div>
-        <div class="result-detail" id="resultDetail"></div>
-      </div>
     </div>
   </div>
 
@@ -1157,6 +1147,47 @@
   </div>
 </div>
 
+<!-- Upload Progress Modal -->
+<div class="modal-overlay" id="uploadModal">
+  <div class="modal" style="max-width: 600px;">
+    <div class="modal-header">
+      <div class="modal-title">⚡ Progreso de subida</div>
+      <!-- No close button initially to prevent closing while uploading -->
+      <button class="modal-close" id="uploadModalClose" onclick="closeUploadModal()" style="display:none;">✕</button>
+    </div>
+    <div style="display:flex; gap: 20px;">
+      <!-- Left: Telegram -->
+      <div style="flex:1; background: var(--surface2); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
+        <div style="font-weight: 800; font-size: 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"></path><path d="M22 2L15 22L11 13L2 9L22 2Z"></path></svg>
+          Telegram
+        </div>
+        <div id="tgUploadProgress">
+          <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
+          <div style="font-size: 12px; color: var(--muted); font-family: var(--font-mono);">Subiendo...</div>
+        </div>
+        <div id="tgUploadResult" style="display:none; margin-top: 12px; font-size: 13px; font-family: var(--font-mono); white-space: pre-wrap; line-height: 1.4;"></div>
+      </div>
+
+      <!-- Right: Immich -->
+      <div style="flex:1; background: var(--surface2); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
+        <div style="font-weight: 800; font-size: 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          Immich
+        </div>
+        <div id="imUploadProgress">
+          <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
+          <div style="font-size: 12px; color: var(--muted); font-family: var(--font-mono);">Subiendo...</div>
+        </div>
+        <div id="imUploadResult" style="display:none; margin-top: 12px; font-size: 13px; font-family: var(--font-mono); white-space: pre-wrap; line-height: 1.4;"></div>
+      </div>
+    </div>
+    <div class="modal-actions" id="uploadModalActions" style="display:none; justify-content: center;">
+      <button class="btn btn-primary" onclick="closeUploadModal()">Aceptar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Persistent Notifications -->
 <div class="notif-container" id="notifContainer"></div>
 
@@ -1187,6 +1218,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupDropZone();
   startCountdown();
 });
+
+function setTab(tabId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[onclick="setTab('${tabId}')"]`).classList.add('active');
+  document.getElementById('panel-' + tabId).classList.add('active');
+}
 
 function startCountdown() {
   countdownRemaining = STATUS_POLL_SECONDS;
@@ -1607,6 +1645,11 @@ function checkUploadReady() {
   hint.textContent = currentFiles.length === 0 ? 'Selecciona un archivo' : !destSel ? 'Selecciona un destino' : '';
 }
 
+// ─── Upload Modal ─────────────────────────────────────────────────────────────
+function closeUploadModal() {
+  document.getElementById('uploadModal').classList.remove('show');
+}
+
 // ─── Upload ───────────────────────────────────────────────────────────────────
 async function doUpload() {
   const destId = document.getElementById('destSelect').value;
@@ -1614,11 +1657,22 @@ async function doUpload() {
 
   const btn = document.getElementById('uploadBtn');
   btn.disabled = true;
-  hideResult();
 
-  const prog = document.getElementById('progressWrap');
-  prog.classList.add('show');
-  document.getElementById('progressLabel').textContent = `Subiendo ${currentFiles.length} archivo(s) a Telegram e Immich...`;
+  // Reset and show modal
+  const modal = document.getElementById('uploadModal');
+  const tgProg = document.getElementById('tgUploadProgress');
+  const imProg = document.getElementById('imUploadProgress');
+  const tgRes = document.getElementById('tgUploadResult');
+  const imRes = document.getElementById('imUploadResult');
+  
+  tgProg.style.display = 'block';
+  imProg.style.display = 'block';
+  tgRes.style.display = 'none';
+  imRes.style.display = 'none';
+  document.getElementById('uploadModalActions').style.display = 'none';
+  document.getElementById('uploadModalClose').style.display = 'none';
+  
+  modal.classList.add('show');
 
   const fd = new FormData();
   currentFiles.forEach(f => {
@@ -1630,48 +1684,63 @@ async function doUpload() {
   try {
     const r = await fetch('/api/upload', { method: 'POST', body: fd });
     const d = await r.json();
-    prog.classList.remove('show');
+    
+    tgProg.style.display = 'none';
+    imProg.style.display = 'none';
+    tgRes.style.display = 'block';
+    imRes.style.display = 'block';
+    document.getElementById('uploadModalActions').style.display = 'flex';
+    document.getElementById('uploadModalClose').style.display = 'block';
 
-    const box = document.getElementById('resultBox');
-    const title = document.getElementById('resultTitle');
-    const detail = document.getElementById('resultDetail');
-    box.classList.add('show');
+    if (d.results) {
+      // Telegram result
+      const destName = document.getElementById('destSelect').options[document.getElementById('destSelect').selectedIndex].text.split(' - ')[0];
 
-    if (d.success) {
-      box.className = 'result-box show success';
-      title.textContent = '✅ ¡Subido correctamente a ambas plataformas!';
-      detail.textContent = [d.results.telegram, d.results.immich].filter(Boolean).join('  ·  ');
-    } else if (d.partial) {
-      box.className = 'result-box show partial';
-      title.textContent = '⚠️ Subido parcialmente';
-      detail.textContent = d.results.errors.join('\n');
+      if (d.results.telegram.success_count > 0 && d.results.telegram.errors.length === 0) {
+        tgRes.innerHTML = `<span style="color:var(--success)">✅ Se subió correctamente (${d.results.telegram.success_count})</span>`;
+      } else if (d.results.telegram.errors.length > 0) {
+        const text = d.results.telegram.success_count > 0 ? `<span style="color:var(--warn)">⚠️ Parcial: ${d.results.telegram.success_count} subidos</span>\n` : `<span style="color:var(--danger)">❌ Error al subir</span>\n`;
+        tgRes.innerHTML = text + `<span style="color:var(--danger)">${d.results.telegram.errors.join('\n')}</span>`;
+      } else {
+        tgRes.innerHTML = `<span style="color:var(--danger)">❌ Error desconocido</span>`;
+      }
+
+      // Immich result
+      if (d.results.immich.success_count > 0 && d.results.immich.errors.length === 0) {
+        imRes.innerHTML = `<span style="color:var(--success)">✅ Se subió correctamente (${d.results.immich.success_count})</span>`;
+      } else if (d.results.immich.errors.length > 0) {
+        const text = d.results.immich.success_count > 0 ? `<span style="color:var(--warn)">⚠️ Parcial: ${d.results.immich.success_count} subidos</span>\n` : `<span style="color:var(--danger)">❌ Error al subir</span>\n`;
+        imRes.innerHTML = text + `<span style="color:var(--danger)">${d.results.immich.errors.join('\n')}</span>`;
+      } else {
+        imRes.innerHTML = `<span style="color:var(--danger)">❌ Error desconocido</span>`;
+      }
     } else {
-      box.className = 'result-box show error';
-      title.textContent = '❌ Error al subir';
-      detail.textContent = d.results.errors.join('\n');
+      tgRes.innerHTML = `<span style="color:var(--danger)">❌ ${d.error || 'Error'}</span>`;
+      imRes.innerHTML = `<span style="color:var(--danger)">❌ ${d.error || 'Error'}</span>`;
     }
 
     if (d.success) clearAllFiles();
   } catch (e) {
-    prog.classList.remove('show');
-    showError('Error de red: ' + e.message);
+    tgProg.style.display = 'none';
+    imProg.style.display = 'none';
+    tgRes.style.display = 'block';
+    imRes.style.display = 'block';
+    document.getElementById('uploadModalActions').style.display = 'flex';
+    document.getElementById('uploadModalClose').style.display = 'block';
+    
+    tgRes.innerHTML = `<span style="color:var(--danger)">❌ Error de red: ${e.message}</span>`;
+    imRes.innerHTML = `<span style="color:var(--danger)">❌ Error de red: ${e.message}</span>`;
   }
   btn.disabled = false;
   checkUploadReady();
 }
 
 function hideResult() {
-  const box = document.getElementById('resultBox');
-  box.classList.remove('show');
-  box.className = 'result-box';
-  document.getElementById('progressWrap').classList.remove('show');
+  // Legacy code handling removed inline result
 }
 
 function showError(msg) {
-  const box = document.getElementById('resultBox');
-  box.className = 'result-box show error';
-  document.getElementById('resultTitle').textContent = '❌ ' + msg;
-  document.getElementById('resultDetail').textContent = '';
+  // Legacy code handling removed inline result
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
