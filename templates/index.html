@@ -813,6 +813,95 @@
     border-top: 1px solid var(--border);
     margin: 20px 0;
   }
+
+  /* ─── Modal ─────────────────────────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    align-items: center;
+    justify-content: center;
+    animation: modalFadeIn 0.25s ease;
+  }
+
+  .modal-overlay.show {
+    display: flex;
+  }
+
+  @keyframes modalFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 520px;
+    margin: 20px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+    animation: modalSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes modalSlideIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+
+  .modal-title {
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .modal-close {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .modal-close:hover {
+    background: var(--border);
+    color: var(--text);
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+    justify-content: flex-end;
+  }
+
+  .btn-edit {
+    background: rgba(91,108,247,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(91,108,247,0.2);
+  }
+
+  .btn-edit:hover {
+    background: rgba(91,108,247,0.2);
+  }
 </style>
 </head>
 <body>
@@ -993,6 +1082,41 @@
     </div>
   </div>
 
+</div>
+
+<!-- Edit Destination Modal -->
+<div class="modal-overlay" id="editModal" onclick="if(event.target===this)closeEditModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">✏️ Editar destino</div>
+      <button class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <input type="hidden" id="editDestId">
+    <div class="field">
+      <label>NOMBRE DEL DESTINO</label>
+      <input type="text" id="editDestName" placeholder="ej. Vacaciones 2024">
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>ÁLBUM DE IMMICH</label>
+        <div class="selector-row">
+          <select id="editImmichAlbum">
+            <option value="">Cargando...</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="loadEditImmichAlbums()" title="Recargar">↻</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>TOPIC ID DE TELEGRAM</label>
+        <input type="text" id="editTgTopic" placeholder="ej. 123">
+        <div class="helper-text">ID del tópico (desde la URL en Telegram Desktop/Web)</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEditDest()">💾 Guardar cambios</button>
+    </div>
+  </div>
 </div>
 
 <!-- Persistent Notifications -->
@@ -1215,10 +1339,11 @@ function renderDestinations() {
     <div class="dest-item">
       <div class="dest-name">${d.name}</div>
       <div class="dest-ids">
-        <div>Immich: ${d.immich_album_id ? d.immich_album_id.substring(0,8)+'...' : '—'}</div>
+        <div>Immich: ${d.immich_album_name || d.immich_album_id?.substring(0,8)+'...' || '—'}</div>
         <div>TG topic: ${d.telegram_topic_id || '—'}</div>
       </div>
       <span class="dest-badge">ID: ${d.id}</span>
+      <button class="btn btn-edit btn-sm" onclick="openEditModal('${d.id}')">✏️</button>
       <button class="btn btn-danger btn-sm" onclick="deleteDest('${d.id}')">🗑</button>
     </div>
   `).join('');
@@ -1236,7 +1361,6 @@ function toggleAddForm() {
   f.classList.toggle('show');
   if (f.classList.contains('show')) {
     loadImmichAlbums();
-    loadTgTopics();
   }
 }
 
@@ -1257,7 +1381,9 @@ async function loadImmichAlbums() {
 
 async function addDest() {
   const name = document.getElementById('newDestName').value.trim();
-  const immich_album_id = document.getElementById('newImmichAlbum').value;
+  const albumSel = document.getElementById('newImmichAlbum');
+  const immich_album_id = albumSel.value;
+  const immich_album_name = albumSel.options[albumSel.selectedIndex]?.text || '';
   const telegram_topic_id = document.getElementById('newTgTopic').value.trim();
   if (!name) { addNotification('app', 'Campo requerido', 'Escribe un nombre para el destino.', 'warning'); return; }
   if (!immich_album_id || !telegram_topic_id) { addNotification('app', 'Campo requerido', 'Selecciona un álbum de Immich e introduce el Topic ID de Telegram.', 'warning'); return; }
@@ -1265,7 +1391,7 @@ async function addDest() {
   await fetch('/api/destinations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, immich_album_id, telegram_topic_id })
+    body: JSON.stringify({ name, immich_album_id, immich_album_name, telegram_topic_id })
   });
   document.getElementById('newDestName').value = '';
   document.getElementById('addDestForm').classList.remove('show');
@@ -1282,6 +1408,61 @@ async function deleteDest(id) {
   });
   await loadDestinations();
   addNotification('app', 'Destino eliminado', 'El destino se ha eliminado correctamente.', 'success');
+}
+
+// ─── Edit modal ───────────────────────────────────────────────────────────────
+async function openEditModal(id) {
+  const dest = destinations.find(d => d.id === id);
+  if (!dest) return;
+
+  document.getElementById('editDestId').value = dest.id;
+  document.getElementById('editDestName').value = dest.name;
+  document.getElementById('editTgTopic').value = dest.telegram_topic_id || '';
+
+  // Load albums and pre-select current one
+  await loadEditImmichAlbums(dest.immich_album_id);
+
+  document.getElementById('editModal').classList.add('show');
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('show');
+}
+
+async function loadEditImmichAlbums(selectedId) {
+  const sel = document.getElementById('editImmichAlbum');
+  sel.innerHTML = '<option value="">Cargando...</option>';
+  try {
+    const r = await fetch('/api/immich/albums');
+    const d = await r.json();
+    if (d.error) { sel.innerHTML = '<option value="">Error: configura Immich primero</option>'; return; }
+    sel.innerHTML = '<option value="">— Seleccionar álbum —</option>' +
+      d.map(a => `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${a.name}</option>`).join('');
+  } catch {
+    sel.innerHTML = '<option value="">Error de conexión</option>';
+  }
+}
+
+async function saveEditDest() {
+  const id = document.getElementById('editDestId').value;
+  const name = document.getElementById('editDestName').value.trim();
+  const albumSel = document.getElementById('editImmichAlbum');
+  const immich_album_id = albumSel.value;
+  const immich_album_name = albumSel.options[albumSel.selectedIndex]?.text || '';
+  const telegram_topic_id = document.getElementById('editTgTopic').value.trim();
+
+  if (!name) { addNotification('app', 'Campo requerido', 'El nombre del destino no puede estar vacío.', 'warning'); return; }
+  if (!immich_album_id || !telegram_topic_id) { addNotification('app', 'Campo requerido', 'Selecciona un álbum e introduce el Topic ID.', 'warning'); return; }
+
+  await fetch('/api/destinations', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, name, immich_album_id, immich_album_name, telegram_topic_id })
+  });
+
+  closeEditModal();
+  await loadDestinations();
+  addNotification('app', 'Destino actualizado', `"${name}" se ha actualizado correctamente.`, 'success', true);
 }
 
 // ─── File handling ────────────────────────────────────────────────────────────

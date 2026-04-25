@@ -3,6 +3,7 @@ import json
 import uuid
 import hashlib
 import mimetypes
+from datetime import datetime, timezone
 import requests
 from flask import Flask, request, jsonify, render_template
 from werkzeug.utils import secure_filename
@@ -75,7 +76,7 @@ def config():
     save_config(cfg)
     return jsonify({'ok': True})
 
-@app.route('/api/destinations', methods=['GET', 'POST', 'DELETE'])
+@app.route('/api/destinations', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def destinations():
     if request.method == 'GET':
         return jsonify(load_destinations())
@@ -86,11 +87,24 @@ def destinations():
             'id': str(uuid.uuid4())[:8],
             'name': data['name'],
             'telegram_topic_id': str(data.get('telegram_topic_id', '')),
-            'immich_album_id': data.get('immich_album_id', '')
+            'immich_album_id': data.get('immich_album_id', ''),
+            'immich_album_name': data.get('immich_album_name', '')
         }
         dests.append(dest)
         save_destinations(dests)
         return jsonify(dest)
+    if request.method == 'PUT':
+        data = request.json
+        dests = load_destinations()
+        for d in dests:
+            if d['id'] == data.get('id'):
+                d['name'] = data.get('name', d['name'])
+                d['telegram_topic_id'] = str(data.get('telegram_topic_id', d['telegram_topic_id']))
+                d['immich_album_id'] = data.get('immich_album_id', d['immich_album_id'])
+                d['immich_album_name'] = data.get('immich_album_name', d.get('immich_album_name', ''))
+                break
+        save_destinations(dests)
+        return jsonify({'ok': True})
     if request.method == 'DELETE':
         dest_id = request.json.get('id')
         dests = [d for d in load_destinations() if d['id'] != dest_id]
@@ -144,19 +158,17 @@ def upload():
         token = cfg['telegram_token']
         chat_id = cfg['telegram_chat_id']
         topic_id = dest.get('telegram_topic_id')
-        video = is_video(filename)
-        method = 'sendVideo' if video else 'sendPhoto'
-        field = 'video' if video else 'photo'
 
         params = {'chat_id': chat_id}
         if topic_id:
             params['message_thread_id'] = topic_id
 
+        # Use sendDocument to preserve original quality (no compression)
         with open(filepath, 'rb') as f:
             r = requests.post(
-                f'https://api.telegram.org/bot{token}/{method}',
+                f'https://api.telegram.org/bot{token}/sendDocument',
                 params=params,
-                files={field: (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')},
+                files={'document': (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')},
                 timeout=120
             )
         data = r.json()
@@ -179,6 +191,10 @@ def upload():
 
         mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
 
+        # Use actual file timestamps to preserve original metadata
+        file_mtime = os.path.getmtime(filepath)
+        file_dt = datetime.fromtimestamp(file_mtime, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
         with open(filepath, 'rb') as f:
             r = requests.post(
                 f'{immich_url}/api/assets',
@@ -186,8 +202,8 @@ def upload():
                 data={
                     'deviceAssetId': f'{filename}-{checksum[:8]}',
                     'deviceId': 'media-sync-app',
-                    'fileCreatedAt': '2024-01-01T00:00:00Z',
-                    'fileModifiedAt': '2024-01-01T00:00:00Z',
+                    'fileCreatedAt': file_dt,
+                    'fileModifiedAt': file_dt,
                 },
                 files={'assetData': (filename, f, mime)},
                 timeout=120
