@@ -9,6 +9,12 @@ import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder, MultipartEncoderMonitor
 from flask import Flask, request, jsonify, render_template
 from werkzeug.utils import secure_filename
+try:
+    from PIL import Image, ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    PILLOW_AVAILABLE = True
+except ImportError:
+    PILLOW_AVAILABLE = False
 
 UPLOAD_TASKS = {}
 
@@ -22,7 +28,7 @@ CONFIG_FILE = 'config.json'
 DESTINATIONS_FILE = 'destinations.json'
 
 ALLOWED_EXTENSIONS = {
-    'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif',
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'avif',
     'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', '3gp'
 }
 
@@ -49,7 +55,8 @@ def save_destinations(data):
         json.dump(data, f, indent=2)
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    if '.' not in filename: return True
+    return filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def is_video(filename):
     ext = filename.rsplit('.', 1)[1].lower()
@@ -154,10 +161,80 @@ def upload():
     for file in files:
         if not file.filename or not allowed_file(file.filename):
             continue
-        filename = secure_filename(file.filename)
+        original_name = secure_filename(file.filename)
+        if not original_name: original_name = "upload"
+        
+        unique_id = str(uuid.uuid4())[:8]
+        filename = f"{unique_id}_{original_name}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
-        saved_files.append((filename, filepath))
+        
+        mime = file.mimetype
+        ext = filename.lower().split('.')[-1] if '.' in filename else ''
+        
+        with open(filepath, 'rb') as f:
+            header = f.read(12)
+            
+        true_ext = ext
+        if header.startswith(b'\xff\xd8\xff'):
+            true_ext = 'jpg'
+            mime = 'image/jpeg'
+        elif header.startswith(b'\x89PNG\r\n\x1a\n'):
+            true_ext = 'png'
+            mime = 'image/png'
+        elif b'ftypheic' in header or b'ftypmif1' in header:
+            true_ext = 'heic'
+            mime = 'image/heic'
+        elif b'ftypavif' in header or b'ftypavis' in header:
+            true_ext = 'avif'
+            mime = 'image/avif'
+        elif b'ftypmp42' in header or b'ftypisom' in header:
+            true_ext = 'mp4'
+            mime = 'video/mp4'
+        elif b'ftypqt' in header:
+            true_ext = 'mov'
+            mime = 'video/quicktime'
+        elif header.startswith(b'RIFF') and header[8:12] == b'WEBP':
+            true_ext = 'webp'
+            mime = 'image/webp'
+            
+        if not true_ext:
+            if mime == 'image/jpeg': true_ext = 'jpg'
+            elif mime == 'image/png': true_ext = 'png'
+            elif mime == 'image/webp': true_ext = 'webp'
+            elif mime == 'image/heic': true_ext = 'heic'
+            elif mime == 'video/mp4': true_ext = 'mp4'
+            else: true_ext = 'bin'
+            
+        if true_ext and true_ext != ext:
+            if '.' in filename:
+                new_filename = f"{filename.rsplit('.', 1)[0]}.{true_ext}"
+            else:
+                new_filename = f"{filename}.{true_ext}"
+            new_filepath = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
+            os.rename(filepath, new_filepath)
+            filename = new_filename
+            filepath = new_filepath
+            
+        if not mime or mime == 'application/octet-stream':
+            mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+
+        # Repair truncated JPEGs from Android Chrome (missing EOI marker)
+        if mime == 'image/jpeg' and PILLOW_AVAILABLE:
+            with open(filepath, 'rb') as f:
+                f.seek(-2, 2)
+                tail = f.read(2)
+            if tail != b'\xff\xd9':
+                print(f"[JPEG REPAIR] {filename} is truncated (tail={tail.hex()}), repairing...")
+                try:
+                    with Image.open(filepath) as img:
+                        img.load()
+                        img.save(filepath, format='JPEG', quality='keep', subsampling='keep')
+                    print(f"[JPEG REPAIR] {filename} repaired successfully")
+                except Exception as e:
+                    print(f"[JPEG REPAIR] Could not repair {filename}: {e}")
+
+        saved_files.append((filename, filepath, mime))
         
     if not saved_files:
         return jsonify({'error': 'No hay archivos válidos para subir'}), 400
@@ -187,14 +264,14 @@ def process_upload_task(task_id, saved_files, dest, as_docs):
     task = UPLOAD_TASKS[task_id]
     cfg = load_config()
 
-    total_size = sum(os.path.getsize(fp) for _, fp in saved_files)
+    total_size = sum(os.path.getsize(fp) for _, fp, _ in saved_files)
     task['tg'] = {'uploaded': 0, 'total': total_size, 'status': 'running', 'success': 0, 'errors': []}
     task['im'] = {'uploaded': 0, 'total': total_size, 'status': 'running', 'success': 0, 'errors': []}
 
     def tg_worker():
         tg_success = 0; tg_errors = []
         tg_uploaded_prev = 0
-        for idx, (filename, filepath) in enumerate(saved_files):
+        for idx, (filename, filepath, mime) in enumerate(saved_files):
             file_size = os.path.getsize(filepath)
             try:
                 file_size_mb = file_size / (1024 * 1024)
@@ -257,7 +334,7 @@ def process_upload_task(task_id, saved_files, dest, as_docs):
     def im_worker():
         im_success = 0; im_errors = []
         im_uploaded_prev = 0
-        for idx, (filename, filepath) in enumerate(saved_files):
+        for idx, (filename, filepath, mime) in enumerate(saved_files):
             file_size = os.path.getsize(filepath)
             try:
                 immich_url = cfg['immich_url'].rstrip('/')
@@ -273,21 +350,36 @@ def process_upload_task(task_id, saved_files, dest, as_docs):
                 def im_callback(monitor):
                     task['im']['uploaded'] = im_uploaded_prev + monitor.bytes_read
 
-                mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
                 encoder = MultipartEncoder(fields={
                     'deviceAssetId': f'{filename}-{checksum[:8]}',
                     'deviceId': 'media-sync-app',
                     'fileCreatedAt': file_dt,
                     'fileModifiedAt': file_dt,
+                    'isFavorite': 'false',
                     'assetData': (filename, open(filepath, 'rb'), mime)
                 })
                 monitor = MultipartEncoderMonitor(encoder, im_callback)
 
                 r = requests.post(f'{immich_url}/api/assets', data=monitor, headers={'x-api-key': api_key, 'Content-Type': monitor.content_type}, timeout=120)
 
+
                 if r.status_code in (200, 201):
                     asset_data = r.json()
                     asset_id = asset_data.get('id')
+                    is_duplicate = asset_data.get('duplicate', False) or asset_data.get('status') == 'duplicate'
+                    
+                    # If duplicate, force thumbnail regeneration in case the old one was broken
+                    if is_duplicate and asset_id:
+                        try:
+                            requests.post(
+                                f'{immich_url}/api/assets/jobs',
+                                headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
+                                json={'assetIds': [asset_id], 'name': 'regenerate-thumbnail'},
+                                timeout=10
+                            )
+                        except Exception:
+                            pass
+
                     if album_id and asset_id:
                         requests.put(f'{immich_url}/api/albums/{album_id}/assets', headers={'x-api-key': api_key, 'Content-Type': 'application/json'}, json={'ids': [asset_id]}, timeout=10)
                     im_success += 1
@@ -315,7 +407,7 @@ def process_upload_task(task_id, saved_files, dest, as_docs):
     t2.join()
 
     # Cleanup file
-    for _, filepath in saved_files:
+    for _, filepath, _ in saved_files:
         try:
             os.remove(filepath)
         except Exception:
